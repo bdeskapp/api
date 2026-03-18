@@ -46,4 +46,5 @@ Consulte a [Referencia de Endpoints](referencia/endpoints.md) para navegar todos
 
 ## Recursos Adicionais
 
-A especificacao completa da API esta disponivel no arquivo `openapi.yaml` (formato OpenAPI 3.1.0), que pode ser importado em ferramentas como Swagger UI ou Insomnia. Uma colecao Postman pronta para uso tambem esta disponivel em `postman_collection.json` — importe-a no Postman para ter todos os endpoints pre-configurados com exemplos de requisicao.
+- **[openapi.yaml](openapi.yaml)** — Especificacao completa da API (OpenAPI 3.1.0). Importe em Swagger UI, Insomnia ou Redoc.
+- **[postman_collection.json](postman_collection.json)** — Colecao Postman pronta para uso. Importe no Postman e configure as variaveis `{{baseUrl}}` e `{{bearerToken}}`.

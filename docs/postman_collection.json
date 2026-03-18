@@ -1,0 +1,2449 @@
+{
+    "info": {
+        "_postman_id": "b5d4d25f-5b7a-47e7-a85d-9c68f0fb5c5c",
+        "name": "BDesk API",
+        "description": "Coleção completa da API REST BDesk com todos os 70 endpoints organizados em 4 domínios.\n\nAntes de usar, configure as variáveis:\n- baseUrl: URL base da API (ex: https://cliente.bdesk.com.br/askrest)\n- bearerToken: Token JWT obtido via POST /v1/login/entrar",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Usuários e Autenticação",
+            "description": "Login, dados do usuário autenticado e licenciamento.",
+            "item": [
+                {
+                    "name": "Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Login\": \"seu-usuario\",\n  \"Senha\": \"sua-senha\",\n  \"Dominio\": \"\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/login/entrar",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "login", "entrar"]
+                        },
+                        "description": "Autentica um usuário e retorna um bearer token. Endpoint público (sem autenticação).\n\nATENÇÃO: O campo Dados na resposta contém uma string JSON escapada. É necessário fazer JSON.parse(response.Dados) para extrair o access_token."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Login App",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"access_token\": \"token-temporario-do-app\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/login/EntrarApp",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "login", "EntrarApp"]
+                        },
+                        "description": "Autentica usando token temporário obtido via autenticação mobile. Valida o token temporário via SHA256 e gera um bearer token permanente. Endpoint público (sem autenticação)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Usuário Atual",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/usuarios/me",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "usuarios", "me"]
+                        },
+                        "description": "Retorna dados básicos do usuário autenticado (id, login, nome). Retorna objeto direto sem envelope RetornoApiRest."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Perfil Detalhado",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/usuarios/perfil",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "usuarios", "perfil"]
+                        },
+                        "description": "Retorna perfil detalhado do usuário autenticado com empresa, cargo, superiores hierárquicos e dados de contato."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Licença (GET)",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/usuarios/licenca",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "usuarios", "licenca"]
+                        },
+                        "description": "Endpoint GET intencionalmente desabilitado. Retorna mensagem orientando uso do método POST com DataVencimento."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Gerar Licença",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"DataVencimento\": \"2025-12-31T00:00:00\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/usuarios/licenca",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "usuarios", "licenca"]
+                        },
+                        "description": "Gera ou valida uma licença do sistema. Requer permissões administrativas e que a empresa de instalação seja autorizada."
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Requisições",
+            "description": "Abertura, consulta, ações de workflow, histórico, anexos, pesquisa de satisfação e participantes.",
+            "item": [
+                {
+                    "name": "Dashboard",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes"]
+                        },
+                        "description": "Retorna contadores de requisições abertas e encerradas com URLs de navegação para as respectivas listagens."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Requisições Abertas",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abertas?pageSize=20&pageNumber=1",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abertas"],
+                            "query": [
+                                {
+                                    "key": "pageSize",
+                                    "value": "20"
+                                },
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                }
+                            ]
+                        },
+                        "description": "Lista paginada de requisições abertas. Parâmetros: pageSize (padrão 20, máx 100), pageNumber (1-indexed)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Filtrar Abertas",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"TextSearch\": \"termo de busca\",\n  \"pageSize\": 20,\n  \"pageNumber\": 1\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abertas",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abertas"]
+                        },
+                        "description": "Variante POST para filtros avançados em requisições abertas. Aceita FiltrosRequisicoes no corpo."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Requisições Encerradas",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/encerradas?pageSize=20&pageNumber=1",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "encerradas"],
+                            "query": [
+                                {
+                                    "key": "pageSize",
+                                    "value": "20"
+                                },
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                }
+                            ]
+                        },
+                        "description": "Lista paginada de requisições encerradas (fechadas). Parâmetros: pageSize (padrão 20, máx 100), pageNumber (1-indexed)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Filtrar Encerradas",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"TextSearch\": \"termo de busca\",\n  \"pageSize\": 20,\n  \"pageNumber\": 1\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/encerradas",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "encerradas"]
+                        },
+                        "description": "Variante POST para filtros avançados em requisições encerradas. Aceita FiltrosRequisicoes no corpo."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Busca Avançada",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"TextSearch\": \"termo de busca\",\n  \"UserId\": 123,\n  \"StartDate\": \"2025-01-01T00:00:00Z\",\n  \"EndDate\": \"2025-12-31T00:00:00Z\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/busca?maximoPorSituacao=100",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "busca"],
+                            "query": [
+                                {
+                                    "key": "maximoPorSituacao",
+                                    "value": "100",
+                                    "description": "Máximo de resultados por situação (padrão: 100)"
+                                }
+                            ]
+                        },
+                        "description": "Pesquisa avançada de requisições abertas e encerradas. Aceita VMFiltrosRequisicoesAvancado no corpo. Query param maximoPorSituacao controla limite por situação."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Por Condição",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"TextSearch\": \"\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/porcondicao/:condicao/:quantidade",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "porcondicao", ":condicao", ":quantidade"],
+                            "variable": [
+                                {
+                                    "key": "condicao",
+                                    "value": "atrasadas",
+                                    "description": "Condição de filtro"
+                                },
+                                {
+                                    "key": "quantidade",
+                                    "value": "50",
+                                    "description": "Quantidade máxima de resultados"
+                                }
+                            ]
+                        },
+                        "description": "Retorna requisições filtradas por condição com limite de quantidade. Aceita FiltrosRequisicoesSimples no corpo."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Detalhes",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Retorna detalhes completos de uma requisição com dados organizados em conjuntos (DadosBasicos, DadosSolicitacao, etc.) e URLs de navegação para sub-recursos."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Dado Domínio Detalhado",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/dado-dominio-detalhado",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "dado-dominio-detalhado"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Retorna detalhes da requisição incluindo dados de domínio detalhados."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Vinculadas",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/vinculadas",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "vinculadas"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Retorna requisições vinculadas à requisição especificada."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Histórico",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/historico",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "historico"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Retorna o histórico completo de ações e eventos da requisição, ordenado cronologicamente."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Adicionar Histórico",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Descricao\": \"Comentário adicionado ao histórico\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/historico",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "historico"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Retorna histórico filtrado com critérios no corpo da requisição. Aceita FiltrosHistorico."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Listar Ações",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/acoes",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "acoes"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Lista as ações de workflow disponíveis para o usuário autenticado na requisição (ex: DIR, ENC, ATR, RECAT)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Executar Ação",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Id\": \"ENC\",\n  \"Descricao\": \"Requisição atendida com sucesso.\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/acoes",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "acoes"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Executa uma ação de workflow na requisição (VMExecutarAcaoApi). O campo Id é o código da ação (ex: ENC, DIR, ATR, RECAT). Campos adicionais dependem da ação."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Grupos para Direcionar",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/acoes/DIR/grupos",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "acoes", "DIR", "grupos"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Lista os grupos disponíveis como destino para a ação DIR (Direcionar) na requisição."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Dados Adicionais",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/dadosadicionais",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "dadosadicionais"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Retorna os conjuntos de dados adicionais preenchidos na requisição."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Editar Dados Adicionais",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"DadosSolicitacao\": {\n    \"Prioridade\": 2,\n    \"AreaSolicitante\": \"Financeiro\"\n  },\n  \"DadosTecnicos\": {\n    \"TipoDeProblema\": \"Conectividade\"\n  }\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/dadosadicionais",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "dadosadicionais"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Atualiza os dados adicionais de uma requisição. Corpo é um mapa de conjunto -> campo -> valor."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Anexos",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/anexos",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "anexos"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Lista todos os anexos de uma requisição."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Anexar Arquivo",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "file",
+                                    "type": "file",
+                                    "src": "",
+                                    "description": "Arquivo a ser anexado à requisição"
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/anexo",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "anexo"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Faz upload de um arquivo como anexo da requisição. Content-Type: multipart/form-data. Nota: rota usa /anexo (singular)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Upload Arquivo",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "file",
+                                    "type": "file",
+                                    "src": "",
+                                    "description": "Arquivo para upload"
+                                }
+                            ]
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/Upload",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "Upload"]
+                        },
+                        "description": "Upload genérico de arquivo sem associar a uma requisição na URL. Content-Type: multipart/form-data."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Pesquisa Satisfação",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/pesquisasatisfacao",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "pesquisasatisfacao"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Retorna a pesquisa de satisfação disponível para a requisição."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Responder Pesquisa Satisfação",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"RequisicaoId\": 12345,\n  \"Nota\": 5,\n  \"Comentario\": \"Excelente atendimento\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/responderpesquisasatisfacao",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "responderpesquisasatisfacao"]
+                        },
+                        "description": "Submete a resposta de uma pesquisa de satisfação. Corpo: PesquisaRespondida."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Requisição",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Formulario\": 1,\n  \"Conjuntos\": {\n    \"DadosBasicos\": {\n      \"Assunto\": \"Problema de conectividade na rede\",\n      \"Descricao\": \"Instabilidade na conexão desde as 9h.\"\n    },\n    \"DadosSolicitacao\": {\n      \"Prioridade\": 2\n    }\n  }\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrir",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrir"]
+                        },
+                        "description": "Cria uma nova requisição e retorna apenas o ID como string. Corpo: VMAbrirRequisicao."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Requisição (Retorno Completo)",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Formulario\": 1,\n  \"Conjuntos\": {\n    \"DadosBasicos\": {\n      \"Assunto\": \"Problema de conectividade na rede\",\n      \"Descricao\": \"Instabilidade na conexão desde as 9h.\"\n    },\n    \"DadosSolicitacao\": {\n      \"Prioridade\": 2\n    }\n  }\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirRequisicao",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirRequisicao"]
+                        },
+                        "description": "Cria uma nova requisição e retorna objeto completo com IdRequisicaoAberta. Corpo: VMAbrirRequisicao (mesmo formato que /abrir)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Desdobrar Requisição",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"IdRequisicaoADesdobrar\": 12345,\n  \"Formulario\": 1,\n  \"Conjuntos\": {\n    \"DadosBasicos\": {\n      \"Assunto\": \"Desdobramento da requisição 12345\",\n      \"Descricao\": \"Sub-requisição para tratamento específico\"\n    }\n  }\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/desdobrar",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "desdobrar"]
+                        },
+                        "description": "Cria uma nova requisição a partir de uma existente (desdobramento/subdivisão). Corpo: DesdobrarRequisicaoVM. Retorna ID da nova requisição como string."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Zabbix (default)",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"host\": \"server01\",\n  \"trigger\": \"High CPU usage\",\n  \"severity\": \"High\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoZabbix",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoZabbix"]
+                        },
+                        "description": "Abre requisição no formato Zabbix usando variante padrão (RompimentoFibra). Corpo JSON dinâmico. Oculto do Swagger."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Zabbix (variante)",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"host\": \"server01\",\n  \"trigger\": \"High CPU usage\",\n  \"severity\": \"High\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoZabbix/:variante",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoZabbix", ":variante"],
+                            "variable": [
+                                {
+                                    "key": "variante",
+                                    "value": "RompimentoFibra",
+                                    "description": "Variante do formato Zabbix"
+                                }
+                            ]
+                        },
+                        "description": "Abre requisição no formato Zabbix com variante específica. Corpo JSON dinâmico. Oculto do Swagger."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Atualizar Formato Zabbix",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"status\": \"resolved\",\n  \"resolution\": \"Problema corrigido\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/atualizarFormatoZabbix/:variante",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "atualizarFormatoZabbix", ":variante"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição a atualizar"
+                                },
+                                {
+                                    "key": "variante",
+                                    "value": "RompimentoFibra",
+                                    "description": "Variante do formato Zabbix"
+                                }
+                            ]
+                        },
+                        "description": "Atualiza requisição existente no formato Zabbix. Corpo JSON dinâmico. Oculto do Swagger."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Investigação Saturação",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoInvestigacaoSaturacao",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoInvestigacaoSaturacao"]
+                        },
+                        "description": "Abre requisição no formato de investigação de saturação. Corpo JSON dinâmico específico do sistema de origem. Oculto do Swagger."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Incidentes IP",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoIncidentesIp",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoIncidentesIp"]
+                        },
+                        "description": "Abre requisição no formato de incidentes IP. Corpo JSON dinâmico. Oculto do Swagger."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Análise Incidentes IP",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoAnaliseIncidentesIP",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoAnaliseIncidentesIP"]
+                        },
+                        "description": "Abre requisição no formato de análise de incidentes IP. Corpo JSON dinâmico. Oculto do Swagger."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Retificadoras",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoRetificadoras",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoRetificadoras"]
+                        },
+                        "description": "Abre requisição no formato retificadoras. Corpo JSON dinâmico. Oculto do Swagger."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Zabbix Discart",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoZabbixDiscart",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoZabbixDiscart"]
+                        },
+                        "description": "Abre requisição no formato Zabbix Discart. Corpo JSON dinâmico. Oculto do Swagger."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato SBCs",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoSBCs",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoSBCs"]
+                        },
+                        "description": "Abre requisição no formato SBCs. Corpo JSON dinâmico."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Trechos",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoTrechos/:atividadeId",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoTrechos", ":atividadeId"],
+                            "variable": [
+                                {
+                                    "key": "atividadeId",
+                                    "value": "1",
+                                    "description": "ID da atividade"
+                                }
+                            ]
+                        },
+                        "description": "Abre requisição no formato trechos. Requer atividadeId no path. Corpo JSON dinâmico."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Massiva",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoMassiva",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoMassiva"]
+                        },
+                        "description": "Abre requisição no formato massiva. Corpo JSON dinâmico."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato Interconexões",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoInterconexoes",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoInterconexoes"]
+                        },
+                        "description": "Abre requisição no formato interconexões. Corpo JSON dinâmico."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Abrir Formato POP",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoPOP",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "abrirFormatoPOP"]
+                        },
+                        "description": "Abre requisição no formato POP. Corpo JSON dinâmico. Oculto do Swagger."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Pesquisar Participantes",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/participantes/:formularioPapelId/pesquisar/:termo",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "participantes", ":formularioPapelId", "pesquisar", ":termo"],
+                            "variable": [
+                                {
+                                    "key": "formularioPapelId",
+                                    "value": "1",
+                                    "description": "ID do formulário-papel"
+                                },
+                                {
+                                    "key": "termo",
+                                    "value": "joao",
+                                    "description": "Termo de pesquisa"
+                                }
+                            ]
+                        },
+                        "description": "Pesquisa participantes por formulário/papel e termo de busca. Retorna array direto (sem envelope RetornoApiRest)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Obter Participantes 2",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/participantes/ObterParticipantes2?formularioPapelId=1&termo=joao",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "participantes", "ObterParticipantes2"],
+                            "query": [
+                                {
+                                    "key": "formularioPapelId",
+                                    "value": "1",
+                                    "description": "ID do formulário-papel"
+                                },
+                                {
+                                    "key": "termo",
+                                    "value": "joao",
+                                    "description": "Termo de pesquisa"
+                                }
+                            ]
+                        },
+                        "description": "Pesquisa participantes com resposta em envelope RetornoApiRest. Parâmetros via query string."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Participantes Domínio",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/participantes/ObterParticipantesDominio?idFormularioPapel=1&term=joao",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "participantes", "ObterParticipantesDominio"],
+                            "query": [
+                                {
+                                    "key": "idFormularioPapel",
+                                    "value": "1",
+                                    "description": "ID do formulário-papel"
+                                },
+                                {
+                                    "key": "term",
+                                    "value": "joao",
+                                    "description": "Termo de pesquisa"
+                                }
+                            ]
+                        },
+                        "description": "Pesquisa participantes filtrados por domínio. Parâmetros via query string."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Dependência Search",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/participantes/ObterParticipantesParaDependenciaSEARCH?idFrmPapel=1&idFrmPapelRelacionado=2&idTpPapel=1&idTpPapelRelacionado=2&jsonPai={}",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "participantes", "ObterParticipantesParaDependenciaSEARCH"],
+                            "query": [
+                                {
+                                    "key": "idFrmPapel",
+                                    "value": "1",
+                                    "description": "ID do formulário-papel"
+                                },
+                                {
+                                    "key": "idFrmPapelRelacionado",
+                                    "value": "2",
+                                    "description": "ID do formulário-papel relacionado"
+                                },
+                                {
+                                    "key": "idTpPapel",
+                                    "value": "1",
+                                    "description": "ID do tipo de papel"
+                                },
+                                {
+                                    "key": "idTpPapelRelacionado",
+                                    "value": "2",
+                                    "description": "ID do tipo de papel relacionado"
+                                },
+                                {
+                                    "key": "jsonPai",
+                                    "value": "{}",
+                                    "description": "JSON serializado do campo pai"
+                                }
+                            ]
+                        },
+                        "description": "Pesquisa participantes considerando relações de dependência entre campos do formulário."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Dependência Combo",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/participantes/ObterParticipantesParaDependenciaCOMBO?idFormularioPapel=1&jsonPai={}&term=joao",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "participantes", "ObterParticipantesParaDependenciaCOMBO"],
+                            "query": [
+                                {
+                                    "key": "idFormularioPapel",
+                                    "value": "1",
+                                    "description": "ID do formulário-papel"
+                                },
+                                {
+                                    "key": "jsonPai",
+                                    "value": "{}",
+                                    "description": "JSON serializado do campo pai"
+                                },
+                                {
+                                    "key": "term",
+                                    "value": "joao",
+                                    "description": "Termo de pesquisa (opcional)"
+                                }
+                            ]
+                        },
+                        "description": "Pesquisa participantes para preenchimento de combos dependentes. Parâmetro term é opcional."
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Catálogo",
+            "description": "Catálogo de serviços — áreas, formulários, atividades e itens de seleção.",
+            "item": [
+                {
+                    "name": "Áreas",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/cardapio",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "cardapio"]
+                        },
+                        "description": "Retorna todas as áreas disponíveis com seus formulários associados."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Item Catálogo",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/cardapio/:id",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "cardapio", ":id"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "1",
+                                    "description": "ID do item do catálogo"
+                                }
+                            ]
+                        },
+                        "description": "Retorna detalhes de um item específico do catálogo."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Categorias",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/cardapio/categorias",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "cardapio", "categorias"]
+                        },
+                        "description": "Retorna todas as categorias de formulários."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "GET /v1/cardapio/portal",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/cardapio/portal",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "cardapio", "portal"]
+                        },
+                        "description": "Retorna categorias explícitas e inferidas filtradas pelos grupos de acesso do usuário autenticado, enriquecidas com metadados de tags e sessões (campos Tipo, Tags, NomesTags, Favorito). BREAKING CHANGE: o campo Id é string, não integer. Categorias inferidas usam Id composto 'idCategoria-idSessao'."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Formulário",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/cardapio/formularios/:formulario",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "cardapio", "formularios", ":formulario"],
+                            "variable": [
+                                {
+                                    "key": "formulario",
+                                    "value": "1",
+                                    "description": "ID do formulário"
+                                }
+                            ]
+                        },
+                        "description": "Retorna detalhes de um formulário com conjuntos de campos. Retorna objeto direto (sem envelope RetornoApiRest)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Atividades",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/cardapio/formularios/:formulario/atividades",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "cardapio", "formularios", ":formulario", "atividades"],
+                            "variable": [
+                                {
+                                    "key": "formulario",
+                                    "value": "1",
+                                    "description": "ID do formulário"
+                                }
+                            ]
+                        },
+                        "description": "Lista as atividades disponíveis para o formulário com informações de SLA e grupos responsáveis."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Atividade Específica",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/cardapio/formularios/:formulario/atividades/:atividade",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "cardapio", "formularios", ":formulario", "atividades", ":atividade"],
+                            "variable": [
+                                {
+                                    "key": "formulario",
+                                    "value": "1",
+                                    "description": "ID do formulário"
+                                },
+                                {
+                                    "key": "atividade",
+                                    "value": "1",
+                                    "description": "ID da atividade"
+                                }
+                            ]
+                        },
+                        "description": "Retorna detalhes de uma atividade específica com campos e conjuntos de dados para preenchimento."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Itens Seleção",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/itensselecao/:idDad",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "itensselecao", ":idDad"],
+                            "variable": [
+                                {
+                                    "key": "idDad",
+                                    "value": "1",
+                                    "description": "ID do dado adicional"
+                                }
+                            ]
+                        },
+                        "description": "Retorna todos os valores de domínio para um dado adicional (dropdown/combo)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Itens Seleção com Pai",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/itensselecao/:idDad/:idDominioPai",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "itensselecao", ":idDad", ":idDominioPai"],
+                            "variable": [
+                                {
+                                    "key": "idDad",
+                                    "value": "1",
+                                    "description": "ID do dado adicional"
+                                },
+                                {
+                                    "key": "idDominioPai",
+                                    "value": "10",
+                                    "description": "ID do domínio pai (para cascata)"
+                                }
+                            ]
+                        },
+                        "description": "Retorna valores de domínio filtrados por um domínio pai (cascata de dependência)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Obter Domínio",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/itensselecao/ObterDominio?idDad=1&idDominio=10",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "itensselecao", "ObterDominio"],
+                            "query": [
+                                {
+                                    "key": "idDad",
+                                    "value": "1",
+                                    "description": "ID do dado adicional"
+                                },
+                                {
+                                    "key": "idDominio",
+                                    "value": "10",
+                                    "description": "ID do domínio"
+                                }
+                            ]
+                        },
+                        "description": "Variante com parâmetros via query string, usada internamente pelo catálogo."
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Configuração",
+            "description": "Itens de configuração (ICs), consultas dinâmicas e listas de papéis globais.",
+            "item": [
+                {
+                    "name": "Dashboard ICs",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics"]
+                        },
+                        "description": "Retorna lista de todos os Itens de Configuração (ICs) disponíveis no sistema."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Detalhes IC",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                }
+                            ]
+                        },
+                        "description": "Retorna detalhes completos de um IC com dados adicionais e URLs de navegação para sub-recursos (componentes, associações, relações, etc.)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Componentes",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic/componentes",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic", "componentes"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                }
+                            ]
+                        },
+                        "description": "Lista componentes associados ao IC."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Associações",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic/associacoes",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic", "associacoes"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                }
+                            ]
+                        },
+                        "description": "Lista ICs associados a este item de configuração."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Relações",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic/relacoes",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic", "relacoes"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                }
+                            ]
+                        },
+                        "description": "Retorna relações do IC — usuários, componentes e associações em um único objeto."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Usuários do IC",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic/usuarios",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic", "usuarios"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                }
+                            ]
+                        },
+                        "description": "Lista usuários associados ao IC."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Relacionamentos",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic/relacionamentos",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic", "relacionamentos"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                }
+                            ]
+                        },
+                        "description": "Retorna o grafo de relacionamentos do IC até N níveis de profundidade."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Listas Papéis",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic/listaspapeis",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic", "listaspapeis"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                }
+                            ]
+                        },
+                        "description": "Lista as listas de papéis associadas ao IC."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Lista Específica",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic/listaspapeis/:lista",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic", "listaspapeis", ":lista"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                },
+                                {
+                                    "key": "lista",
+                                    "value": "1",
+                                    "description": "ID da lista de papéis"
+                                }
+                            ]
+                        },
+                        "description": "Retorna detalhes de uma lista de papéis específica do IC."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Membros",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic/listaspapeis/:lista/membros",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic", "listaspapeis", ":lista", "membros"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                },
+                                {
+                                    "key": "lista",
+                                    "value": "1",
+                                    "description": "ID da lista de papéis"
+                                }
+                            ]
+                        },
+                        "description": "Lista os membros de uma lista de papéis do IC."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Alterar Membros",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Adicionar\": [123, 456],\n  \"Remover\": [789]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/ics/:ic/listaspapeis/:lista/membros",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "ics", ":ic", "listaspapeis", ":lista", "membros"],
+                            "variable": [
+                                {
+                                    "key": "ic",
+                                    "value": "1001",
+                                    "description": "ID do Item de Configuração"
+                                },
+                                {
+                                    "key": "lista",
+                                    "value": "1",
+                                    "description": "ID da lista de papéis"
+                                }
+                            ]
+                        },
+                        "description": "Adiciona ou remove membros de uma lista de papéis do IC. Corpo: AlteracoesMembros (JSON com membros a adicionar/remover)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Executar Consulta",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"dataInicio\": \"2025-01-01\",\n  \"status\": \"ativo\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/consultas/:nome_consulta",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "consultas", ":nome_consulta"],
+                            "variable": [
+                                {
+                                    "key": "nome_consulta",
+                                    "value": "minha_consulta",
+                                    "description": "Nome da consulta registrada em ParametroAvancado"
+                                }
+                            ]
+                        },
+                        "description": "Executa uma consulta SQL pré-definida na tabela ParametroAvancado. Parâmetros internos (ex: usuarioid) são injetados automaticamente. Demais parâmetros são passados no corpo como pares chave-valor."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Listas Papéis IC (Global)",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/listaspapeisic",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "listaspapeisic"]
+                        },
+                        "description": "Retorna todas as listas de papéis de IC do sistema (global, não por IC). Oculto do Swagger. Para listas de um IC específico, use GET /v1/ics/{ic}/listaspapeis."
+                    },
+                    "response": []
+                }
+            ]
+        }
+    ],
+    "event": [
+        {
+            "listen": "prerequest",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    ""
+                ]
+            }
+        },
+        {
+            "listen": "test",
+            "script": {
+                "type": "text/javascript",
+                "exec": [
+                    ""
+                ]
+            }
+        }
+    ],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "https://cliente.bdesk.com.br/askrest",
+            "type": "string"
+        },
+        {
+            "key": "bearerToken",
+            "value": "SEU_TOKEN_AQUI",
+            "type": "string"
+        }
+    ]
+}
