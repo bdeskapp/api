@@ -40,7 +40,7 @@ A API REST do BDesk permite automatizar operacoes da plataforma diretamente dos 
 
 ## Referencia Completa de Endpoints
 
-Consulte a <a href="redoc.html" target="_blank">Referencia de Endpoints</a> para navegar todos os 72 endpoints com exemplos de requisicao e resposta (abre em nova aba).
+Consulte a <a href="redoc.html" target="_blank">Referencia de Endpoints</a> para navegar todas as 73 operacoes com exemplos de requisicao e resposta (abre em nova aba).
 
 ---
 

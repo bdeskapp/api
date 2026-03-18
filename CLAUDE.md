@@ -25,17 +25,19 @@ The `--strict` flag is used in CI and will fail on warnings (broken links, missi
 
 ## Deployment
 
-Pushing to `main` triggers `.github/workflows/deploy-docs.yml`, which builds with `mkdocs build --strict` and deploys to GitHub Pages via `actions/deploy-pages`. No manual deploy needed.
+Pushing to `main` triggers `.github/workflows/deploy-docs.yml`, a two-job pipeline: build (`mkdocs build --strict` + `upload-pages-artifact`) then deploy (`deploy-pages`). No manual deploy needed.
 
 ## Architecture
 
 - `mkdocs.yml` — Site configuration, nav structure, theme, and markdown extensions
 - `docs/` — All source markdown files, organized by nav structure:
   - `docs/index.md` — Landing page
+  - `docs/primeiros-passos.md` — Quick-start guide
+  - `docs/autenticacao.md` — Authentication and token management
   - `docs/guias/` — How-to guides (creating requests, attachments, workflow actions, etc.)
-  - `docs/referencia/` — Reference docs (errors, pagination, glossary, limits)
+  - `docs/referencia/` — Reference docs (errors, pagination, glossary, limits, endpoints)
   - `docs/exemplos/` — Code examples (cURL, Python, PowerShell)
-- `docs/openapi.yaml` — OpenAPI 3.1.0 spec (72 endpoints), served as a downloadable asset and rendered via Redoc
+- `docs/openapi.yaml` — OpenAPI 3.1.0 spec (73 operations across 66 endpoints), served as a downloadable asset and rendered via Redoc
 - `docs/redoc.html` — Standalone HTML page that renders the OpenAPI spec using Redoc CDN (not managed by MkDocs)
 - `docs/postman_collection.json` — Postman collection for the API
 - `site/` — Built output (gitignored — do not edit directly)
@@ -43,7 +45,7 @@ Pushing to `main` triggers `.github/workflows/deploy-docs.yml`, which builds wit
 ## Key Conventions
 
 - The nav hierarchy in `mkdocs.yml` is the source of truth for page organization. Keep it in sync when adding/removing pages.
-- Markdown extensions in use: admonition, details, superfences, highlight, tabbed, tables, attr_list, md_in_html. Use these features freely in docs.
+- Markdown extensions in use: admonition, details, superfences, highlight, inlinehilite, tabbed, tables, attr_list, md_in_html. Use these features freely in docs.
 - The API base URL pattern is `https://{cliente}.bdesk.com.br/askrest` with a per-customer subdomain variable.
 - The API uses a custom response envelope `RetornoApiRest<T>` with `_metadata` and `records` fields. The login endpoint is a special case returning `RetornoApi<T>` with an escaped JSON string in `Dados`.
 

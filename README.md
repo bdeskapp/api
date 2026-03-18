@@ -5,10 +5,10 @@ Documentacao da API REST do [BDesk](https://herocorp.bdesk.com.br), uma platafor
 ## Conteudo
 
 - **Primeiros Passos** — Login, obtencao de token e primeira chamada
-- **Guias** — Criar/consultar requisicoes, workflow, anexos, catalogo de servicos, ICs, monitoramento
+- **Guias** — Criar/consultar requisicoes, workflow, anexos, catalogo de servicos, ICs, monitoramento, participantes
 - **Referencia** — Erros, paginacao, limites, glossario
 - **Exemplos de Codigo** — cURL, Python, PowerShell
-- **Referencia de Endpoints** — Todos os 72 endpoints documentados via [Redoc](https://redocly.com/redoc)
+- **Referencia de Endpoints** — 73 operacoes documentadas via [Redoc](https://redocly.com/redoc)
 - **OpenAPI 3.1** — Especificacao completa em `docs/openapi.yaml`
 - **Colecao Postman** — Pronta para importar em `docs/postman_collection.json`
 
@@ -40,7 +40,7 @@ docs/
   primeiros-passos.md         # Guia de inicio rapido
   autenticacao.md             # Autenticacao e tokens
   guias/                      # Guias praticos (8 guias)
-  referencia/                 # Referencia tecnica (erros, paginacao, limites, glossario)
+  referencia/                 # Referencia tecnica (erros, paginacao, limites, glossario, endpoints)
   exemplos/                   # Exemplos de codigo (cURL, Python, PowerShell)
   openapi.yaml                # Especificacao OpenAPI 3.1.0
   postman_collection.json     # Colecao Postman
