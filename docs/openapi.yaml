@@ -1,0 +1,3291 @@
+openapi: 3.1.0
+info:
+  title: API BDesk
+  description: |
+    # API de Gerenciamento de Serviços BDesk
+
+    API REST para integração com a plataforma BDesk (BusinessDesk), um sistema ITSM/service-desk empresarial.
+
+    ## Principais recursos
+
+    * **Requisições**: Abrir, consultar, filtrar e executar ações em requisições de serviço
+    * **Itens de Configuração (ICs)**: Consultar ativos, componentes, associações e listas de papéis
+    * **Catálogo de Serviços**: Navegar formulários, atividades e itens de seleção
+    * **Autenticação**: Autenticação via bearer token (JWT)
+
+    ## Autenticação
+
+    Todos os endpoints (exceto login) requerem autenticação via bearer token.
+    O token é obtido via `POST /v1/login/entrar`.
+
+    > **Atenção:** O endpoint de login retorna `RetornoApi<T>` (não `RetornoApiRest<T>`).
+    > O campo `Dados` contém uma **string JSON escapada** — é necessário fazer `JSON.parse(response.Dados)` para extrair o token.
+
+    ## Formato de Resposta
+
+    A maioria dos endpoints usa o envelope `RetornoApiRest<T>`:
+    ```json
+    {
+      "_metadata": { "Release": "...", "MensagensErro": [], "LogAmigavel": [] },
+      "records": [ ... ]
+    }
+    ```
+
+    Erros de negócio retornam HTTP **406** com `_metadata.MensagensErro` preenchido.
+  version: 2.0.0
+  contact:
+    email: suporte@bdesk.com.br
+    name: Suporte BDesk
+    url: https://herocorp.bdesk.com.br
+
+servers:
+  - url: https://{cliente}.bdesk.com.br/askrest
+    description: Produção
+    variables:
+      cliente:
+        default: herocorp
+        description: Subdomínio do cliente
+  - url: https://{cliente}.bdesk.com.br/askrest-qa
+    description: QA / Homologação
+    variables:
+      cliente:
+        default: herocorp
+  - url: https://{cliente}.bdesk.com.br/askrest-dev
+    description: Desenvolvimento
+    variables:
+      cliente:
+        default: herocorp
+  - url: http://localhost:{porta}/api
+    description: Desenvolvimento local
+    variables:
+      porta:
+        default: "44378"
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Usuários e Autenticação
+    description: Login, dados do usuário autenticado e licenciamento
+  - name: Requisições
+    description: Abertura, consulta, ações, histórico e anexos de requisições
+  - name: Catálogo
+    description: Catálogo de serviços (formulários, atividades, itens de seleção)
+  - name: Configuração
+    description: Itens de configuração (ICs), consultas dinâmicas e listas de papéis
+
+# ============================================================================
+# PATHS
+# ============================================================================
+
+paths:
+
+  # --------------------------------------------------------------------------
+  # Usuários e Autenticação — LoginController, UsuariosController
+  # --------------------------------------------------------------------------
+
+  /v1/login/entrar:
+    post:
+      tags: [Usuários e Autenticação]
+      summary: Autenticar usuário
+      description: |
+        Autentica um usuário e retorna um bearer token.
+
+        > **Atenção:** Este endpoint usa `RetornoApi<T>` (não `RetornoApiRest<T>`).
+        > O campo `Dados` contém uma **string JSON escapada**. É necessário fazer
+        > `JSON.parse(response.Dados)` para extrair o objeto com `access_token`.
+      operationId: entrar
+      security: []
+      x-source-controller: LoginController.Entrar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Autenticação bem-sucedida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiLogin'
+              example:
+                Dados: '"{\"access_token\":\"eyJhbGci...\"}"'
+                LogAmigavel: []
+                MensagensErro: []
+                Versao: "9.8.0"
+        '406':
+          description: Erro de negócio (credenciais inválidas, usuário bloqueado)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiLogin'
+
+  /v1/login/EntrarApp:
+    post:
+      tags: [Usuários e Autenticação]
+      summary: Autenticar via app mobile
+      description: |
+        Autentica usando um token temporário obtido via autenticação mobile.
+        Valida o token temporário via SHA256 e gera um bearer token permanente.
+      operationId: entrarApp
+      security: []
+      x-source-controller: LoginController.EntrarApp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [access_token]
+              properties:
+                access_token:
+                  type: string
+                  description: Token temporário obtido via autenticação mobile
+      responses:
+        '200':
+          description: Token validado e novo bearer token gerado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiObject'
+
+  /v1/usuarios/me:
+    get:
+      tags: [Usuários e Autenticação]
+      summary: Dados básicos do usuário autenticado
+      description: |
+        Retorna dados básicos do usuário autenticado (id, login, nome).
+
+        > **Nota:** Este endpoint retorna um objeto direto (sem envelope `RetornoApiRest`).
+      operationId: dadosUsuarioAutenticado
+      x-source-controller: UsuariosController.DadosUsuarioAutenticado
+      responses:
+        '200':
+          description: Dados do usuário
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsuarioVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/usuarios/perfil:
+    get:
+      tags: [Usuários e Autenticação]
+      summary: Perfil detalhado do usuário autenticado
+      description: Retorna perfil completo com empresa, cargo, superiores hierárquicos e dados de contato.
+      operationId: detalhesDadosUsuarioAutenticado
+      x-source-controller: UsuariosController.DetalhesDadosUsuarioAutenticado
+      responses:
+        '200':
+          description: Perfil detalhado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestPerfilUsuario'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/usuarios/licenca:
+    get:
+      tags: [Usuários e Autenticação]
+      summary: Obter licença (GET — redirecionamento)
+      description: |
+        Este endpoint GET é intencionalmente desabilitado. Retorna uma mensagem
+        orientando o uso do método POST. Oculto do Swagger.
+      operationId: obterLicencaGet
+      x-source-controller: UsuariosController.ObterLicencaGet
+      responses:
+        '200':
+          description: Mensagem de redirecionamento para POST
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestString'
+    post:
+      tags: [Usuários e Autenticação]
+      summary: Gerar/validar licença
+      description: |
+        Gera ou valida uma licença do sistema BDesk. Oculto do Swagger.
+        Requer que a empresa de instalação seja válida.
+      operationId: obterLicenca
+      x-source-controller: UsuariosController.ObterLicenca
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DadosLicencaVM'
+      responses:
+        '200':
+          description: Licença gerada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestString'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  # --------------------------------------------------------------------------
+  # Requisições — RequisicoesController
+  # --------------------------------------------------------------------------
+
+  /v1/requisicoes:
+    get:
+      tags: [Requisições]
+      summary: Dashboard de requisições
+      description: Retorna contadores de requisições abertas e encerradas com URLs de navegação.
+      operationId: dashboard
+      x-source-controller: RequisicoesController.Dashboard
+      responses:
+        '200':
+          description: Resumo do dashboard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/abertas:
+    get:
+      tags: [Requisições]
+      summary: Listar requisições abertas
+      description: Retorna lista paginada de requisições abertas com filtros via query string.
+      operationId: requisicoesAbertas
+      x-source-controller: RequisicoesController.RequisicoesAbertas
+      parameters:
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageNumber'
+      responses:
+        '200':
+          description: Lista de requisições abertas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestRequisicoes'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+    post:
+      tags: [Requisições]
+      summary: Listar requisições abertas (filtro POST)
+      description: Variante POST para filtros avançados no corpo da requisição.
+      operationId: requisicoesAbertasPost
+      x-source-controller: RequisicoesController.RequisicoesAbertasPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FiltrosRequisicoes'
+      responses:
+        '200':
+          description: Lista de requisições abertas filtradas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestRequisicoes'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/encerradas:
+    get:
+      tags: [Requisições]
+      summary: Listar requisições encerradas
+      description: Retorna lista paginada de requisições encerradas.
+      operationId: requisicoesEncerradas
+      x-source-controller: RequisicoesController.RequisicoesEncerradas
+      parameters:
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageNumber'
+      responses:
+        '200':
+          description: Lista de requisições encerradas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestRequisicoes'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+    post:
+      tags: [Requisições]
+      summary: Listar requisições encerradas (filtro POST)
+      description: Variante POST para filtros avançados.
+      operationId: requisicoesEncerradasPost
+      x-source-controller: RequisicoesController.RequisicoesEncerradasPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FiltrosRequisicoes'
+      responses:
+        '200':
+          description: Lista de requisições encerradas filtradas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestRequisicoes'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/porcondicao/{condicao}/{quantidade}:
+    post:
+      tags: [Requisições]
+      summary: Requisições por condição
+      description: Retorna requisições filtradas por uma condição específica com limite de quantidade.
+      operationId: obterRequisicoesByCondicao
+      x-source-controller: RequisicoesController.ObterRequisicoesByCondicao
+      parameters:
+        - name: condicao
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Condição de filtro
+        - name: quantidade
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Quantidade máxima de resultados
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FiltrosRequisicoesSimples'
+      responses:
+        '200':
+          description: Requisições filtradas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestRequisicoes'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/busca:
+    post:
+      tags: [Requisições]
+      summary: Busca avançada de requisições
+      description: Pesquisa avançada com filtros complexos. Usa DaoCom para busca integrada.
+      operationId: buscaRequisicoes
+      x-source-controller: RequisicoesController.BuscaRequisicoes
+      parameters:
+        - name: maximoPorSituacao
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+          description: Máximo de resultados por situação
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VMFiltrosRequisicoesAvancado'
+      responses:
+        '200':
+          description: Resultados da busca
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/{requisicao}:
+    get:
+      tags: [Requisições]
+      summary: Detalhes da requisição
+      description: Retorna detalhes completos de uma requisição com dados organizados em conjuntos e URLs de navegação.
+      operationId: detalhes
+      x-source-controller: RequisicoesController.Detalhes
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      responses:
+        '200':
+          description: Detalhes da requisição
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequisicoesDetalhesVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/{requisicao}/dado-dominio-detalhado:
+    get:
+      tags: [Requisições]
+      summary: Detalhes com dados de domínio
+      description: Retorna detalhes da requisição incluindo dados de domínio detalhados.
+      operationId: detalhesRequisicaoDadoDominio
+      x-source-controller: RequisicoesController.DetalhesRequisicaoDadoDominio
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      responses:
+        '200':
+          description: Detalhes com domínio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequisicoesDetalhesVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/{requisicao}/historico:
+    get:
+      tags: [Requisições]
+      summary: Histórico da requisição
+      description: Retorna o histórico de ações e eventos da requisição.
+      operationId: historico
+      x-source-controller: RequisicoesController.Historico
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      responses:
+        '200':
+          description: Histórico
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+    post:
+      tags: [Requisições]
+      summary: Histórico filtrado
+      description: Retorna histórico filtrado com critérios no corpo da requisição.
+      operationId: historicoPost
+      x-source-controller: RequisicoesController.HistoricoPost
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FiltrosHistorico'
+      responses:
+        '200':
+          description: Histórico filtrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/{requisicao}/anexos:
+    get:
+      tags: [Requisições]
+      summary: Listar anexos
+      description: Retorna todos os anexos de uma requisição. Nota — rota usa plural `/anexos`.
+      operationId: anexos
+      x-source-controller: RequisicoesController.Anexos
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      responses:
+        '200':
+          description: Lista de anexos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/{requisicao}/anexo:
+    post:
+      tags: [Requisições]
+      summary: Anexar arquivo
+      description: |
+        Faz upload de um arquivo como anexo da requisição.
+        Nota — rota usa singular `/anexo` (diferente do GET que usa `/anexos`).
+      operationId: anexo
+      x-source-controller: RequisicoesController.Anexo
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Upload concluído
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/Upload:
+    post:
+      tags: [Requisições]
+      summary: Upload genérico de arquivo
+      description: Upload de arquivo avulso (sem associar a uma requisição específica na URL).
+      operationId: upload
+      x-source-controller: RequisicoesController.Upload
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Upload concluído
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/{requisicao}/acoes:
+    get:
+      tags: [Requisições]
+      summary: Ações disponíveis
+      description: Lista as ações disponíveis para o usuário autenticado na requisição especificada.
+      operationId: acoesDoUsuarioNaRequisicao
+      x-source-controller: RequisicoesController.AcoesDoUsuarioNaRequisicao
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      responses:
+        '200':
+          description: Ações disponíveis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+    post:
+      tags: [Requisições]
+      summary: Executar ação
+      description: |
+        Executa uma ação de workflow na requisição.
+        Ver [Guia de Ações de Workflow](guides/workflow-actions.md) para códigos e parâmetros.
+      operationId: executarAcao
+      x-source-controller: RequisicoesController.ExecutarAcao
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VMExecutarAcaoApi'
+      responses:
+        '200':
+          description: Ação executada
+          content:
+            application/json:
+              schema:
+                type: object
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/{requisicao}/acoes/DIR/grupos:
+    get:
+      tags: [Requisições]
+      summary: Grupos disponíveis para direcionar
+      description: Lista os grupos possíveis como destino da ação DIR (Direcionar).
+      operationId: possiveisSolicitadosAcaoDirecionar
+      x-source-controller: RequisicoesController.PossiveisSolicitadosAcaoDirecionar
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      responses:
+        '200':
+          description: Grupos disponíveis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/{requisicao}/dadosadicionais:
+    get:
+      tags: [Requisições]
+      summary: Dados adicionais da requisição
+      description: Retorna os conjuntos de dados adicionais preenchidos na requisição.
+      operationId: dadosAdicionais
+      x-source-controller: RequisicoesController.DadosAdicionais
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      responses:
+        '200':
+          description: Dados adicionais
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ConjuntosDadosAdicionais:
+                    type: object
+                  MensagensErro:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+    post:
+      tags: [Requisições]
+      summary: Editar dados adicionais
+      description: Atualiza os dados adicionais de uma requisição.
+      operationId: editarDadosAdicionais
+      x-source-controller: RequisicoesController.EditarDadosAdicionais
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: object
+                additionalProperties: true
+              description: 'Mapa de conjuntos → campos → valores'
+      responses:
+        '200':
+          description: Dados atualizados
+          content:
+            application/json:
+              schema:
+                type: object
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/{requisicao}/vinculadas:
+    get:
+      tags: [Requisições]
+      summary: Requisições vinculadas
+      description: Retorna as requisições vinculadas à requisição especificada.
+      operationId: requisicoesVinculadas
+      x-source-controller: RequisicoesController.RequisicoesVinculadas
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      responses:
+        '200':
+          description: Requisições vinculadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/{requisicao}/pesquisasatisfacao:
+    get:
+      tags: [Requisições]
+      summary: Pesquisa de satisfação
+      description: Retorna a pesquisa de satisfação disponível para a requisição.
+      operationId: pesquisaSatisfacao
+      x-source-controller: RequisicoesController.PesquisaSatisfacao
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      responses:
+        '200':
+          description: Dados da pesquisa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PesquisaVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/responderpesquisasatisfacao:
+    post:
+      tags: [Requisições]
+      summary: Responder pesquisa de satisfação
+      description: Submete a resposta de uma pesquisa de satisfação.
+      operationId: responderPesquisaSatisfacao
+      x-source-controller: RequisicoesController.ResponderPesquisaSatisfacao
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PesquisaRespondida'
+      responses:
+        '200':
+          description: Resposta registrada
+          content:
+            application/json:
+              schema:
+                type: string
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  # --- Abertura de Requisições ---
+
+  /v1/requisicoes/abrir:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (retorno simples)
+      description: |
+        Cria uma nova requisição e retorna apenas o ID da requisição criada como string.
+      operationId: abrirRequisicao
+      x-source-controller: RequisicoesController.AbrirRequisicao
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VMAbrirRequisicao'
+      responses:
+        '200':
+          description: ID da requisição criada
+          content:
+            application/json:
+              schema:
+                type: string
+              example: "12345"
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/abrirRequisicao:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (retorno completo)
+      description: Cria uma nova requisição e retorna objeto completo com IdRequisicaoAberta e metadados.
+      operationId: abrirRequisicaoRetornoCompleto
+      x-source-controller: RequisicoesController.AbrirRequisicaoRetornoCompleto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VMAbrirRequisicao'
+      responses:
+        '200':
+          description: Requisição criada com detalhes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  IdRequisicaoAberta:
+                    type: integer
+                  MensagensErro:
+                    type: array
+                    items:
+                      type: string
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/desdobrar:
+    post:
+      tags: [Requisições]
+      summary: Desdobrar requisição
+      description: Cria uma nova requisição a partir de uma existente (subdivisão/desdobramento).
+      operationId: desdobrarRequisicao
+      x-source-controller: RequisicoesController.DesdobrarRequisicao
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DesdobrarRequisicaoVM'
+      responses:
+        '200':
+          description: ID da nova requisição
+          content:
+            application/json:
+              schema:
+                type: string
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  # --- Abertura Formato-Específico (Integrações) ---
+
+  /v1/requisicoes/abrirFormatoZabbix:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Zabbix, variante padrão)
+      description: |
+        Cria requisição no formato Zabbix usando a variante padrão ("RompimentoFibra").
+        Oculto do Swagger. Ver também a rota com `{variante}` para subtipos específicos.
+      operationId: abrirRequisicaoFormatoZabbixDefault
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoZabbix
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoZabbix/{variante}:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Zabbix, variante específica)
+      description: |
+        Cria requisição no formato Zabbix com variante específica.
+        Oculto do Swagger. Sem `{variante}`, usa default "RompimentoFibra".
+      operationId: abrirRequisicaoFormatoZabbix
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoZabbix
+      parameters:
+        - name: variante
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Variante do formato Zabbix (ex. "RompimentoFibra")
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/{requisicao}/atualizarFormatoZabbix/{variante}:
+    post:
+      tags: [Requisições]
+      summary: Atualizar requisição (formato Zabbix)
+      description: Atualiza uma requisição existente no formato Zabbix. Oculto do Swagger.
+      operationId: atualizarFormatoZabbix
+      x-source-controller: RequisicoesController.AtualizarFormatoZabbix
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+        - name: variante
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Requisição atualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestString'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/{requisicao}/atualizarPlacaPON/{variante}:
+    post:
+      tags: [Requisições]
+      summary: Recebe evento de atualização PlacaPON e executa ações configuradas
+      description: Recebe payload tipado (formato Atrix/Alloha) e executa ações configuradas via template ParametroAvancado. Oculto do Swagger.
+      operationId: atualizarPlacaPON
+      x-source-controller: RequisicoesController.AtualizarPlacaPON
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+        - name: variante
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Ações executadas com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestString'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoInvestigacaoSaturacao:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Investigação Saturação)
+      description: Cria requisição para investigação de saturação. Oculto do Swagger.
+      operationId: abrirRequisicaoFormatoSaturacao
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoSaturacao
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoIncidentesIp:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Incidentes IP)
+      description: Cria requisição para incidentes IP. Oculto do Swagger.
+      operationId: abrirRequisicaoFormatoIncidentesIP
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoIncidentesIP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoAnaliseIncidentesIP:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Análise Incidentes IP)
+      description: Cria requisição para análise de incidentes IP. Oculto do Swagger.
+      operationId: abrirFormatoAnaliseIncidentesIP
+      x-source-controller: RequisicoesController.AbrirFormatoAnaliseIncidentesIP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoRetificadoras:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Retificadoras)
+      description: Cria requisição para retificadoras. Oculto do Swagger.
+      operationId: abrirRequisicaoFormatoRetificadoras
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoRetificadoras
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoZabbixDiscart:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Zabbix Discart)
+      description: Cria requisição no formato Zabbix Discart. Oculto do Swagger.
+      operationId: abrirRequisicaoFormatoZabbixDiscart
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoZabbixDiscart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoSBCs:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato SBCs)
+      description: Cria requisição no formato SBCs.
+      operationId: abrirRequisicaoFormatoSBCs
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoSBCs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoTrechos/{atividadeId}:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Trechos)
+      description: Cria requisição no formato Trechos, associada a uma atividade.
+      operationId: abrirRequisicaoFormatoTrechos
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoTrechos
+      parameters:
+        - name: atividadeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ID da atividade
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoMassiva:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Massiva)
+      description: Cria requisição no formato Massiva.
+      operationId: abrirRequisicaoFormatoMassiva
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoMassiva
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoInterconexoes:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato Interconexões)
+      description: Cria requisição no formato Interconexões.
+      operationId: abrirRequisicaoFormatoInterconexoes
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoInterconexoes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/abrirFormatoPOP:
+    post:
+      tags: [Requisições]
+      summary: Abrir requisição (formato POP)
+      description: Cria requisição no formato POP. Oculto do Swagger.
+      operationId: abrirRequisicaoFormatoPOP
+      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoPOP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Requisição criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  # --- Participantes (endpoints de busca) ---
+
+  /v1/participantes/{formularioPapelId}/pesquisar/{termo}:
+    get:
+      tags: [Requisições]
+      summary: Pesquisar participantes por termo
+      description: |
+        Pesquisa participantes por formulário/papel e termo de busca.
+        Retorna array direto (sem envelope RetornoApiRest).
+      operationId: pesquisar
+      x-source-controller: ParticipantesController.Pesquisar
+      parameters:
+        - name: formularioPapelId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do formulário-papel
+        - name: termo
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Termo de pesquisa
+      responses:
+        '200':
+          description: Participantes encontrados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Valor'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/participantes/ObterParticipantes2:
+    get:
+      tags: [Requisições]
+      summary: Pesquisar participantes (v2)
+      description: Pesquisa participantes com resposta em envelope RetornoApiRest.
+      operationId: obterParticipantes2
+      x-source-controller: ParticipantesController.ObterParticipantes2
+      parameters:
+        - name: formularioPapelId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: termo
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Participantes encontrados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestValor'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/participantes/ObterParticipantesDominio:
+    get:
+      tags: [Requisições]
+      summary: Pesquisar participantes de domínio
+      description: Pesquisa participantes filtrados por domínio.
+      operationId: obterParticipantesDominio
+      x-source-controller: ParticipantesController.ObterParticipantesDominio
+      parameters:
+        - name: idFormularioPapel
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: term
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Participantes de domínio encontrados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestValor'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/participantes/ObterParticipantesParaDependenciaSEARCH:
+    get:
+      tags: [Requisições]
+      summary: Pesquisar participantes para dependência (busca)
+      description: Pesquisa participantes considerando relações de dependência entre campos do formulário.
+      operationId: obterParticipantesParaDependenciaSEARCH
+      x-source-controller: ParticipantesController.ObterParticipantesParaDependenciaSEARCH
+      parameters:
+        - name: idFrmPapel
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: idFrmPapelRelacionado
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: idTpPapel
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: idTpPapelRelacionado
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: jsonPai
+          in: query
+          required: true
+          schema:
+            type: string
+          description: JSON serializado do campo pai
+      responses:
+        '200':
+          description: Participantes para dependência
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/participantes/ObterParticipantesParaDependenciaCOMBO:
+    get:
+      tags: [Requisições]
+      summary: Pesquisar participantes para dependência (combo)
+      description: Pesquisa participantes para preenchimento de combos dependentes.
+      operationId: obterParticipantesParaDependenciaCOMBO
+      x-source-controller: ParticipantesController.ObterParticipantesParaDependenciaCOMBO
+      parameters:
+        - name: idFormularioPapel
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: jsonPai
+          in: query
+          required: true
+          schema:
+            type: string
+          description: JSON serializado do campo pai
+        - name: term
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Participantes para combo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestValor'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  # --------------------------------------------------------------------------
+  # Catálogo — CardapioController, ItensSelecaoController
+  # --------------------------------------------------------------------------
+
+  /v1/cardapio:
+    get:
+      tags: [Catálogo]
+      summary: Listar áreas do catálogo
+      description: Retorna todas as áreas disponíveis com seus formulários.
+      operationId: areas
+      x-source-controller: CardapioController.Areas
+      responses:
+        '200':
+          description: Áreas do catálogo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestAreaVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/cardapio/{id}:
+    get:
+      tags: [Catálogo]
+      summary: Item do catálogo
+      description: Retorna detalhes de um item específico do catálogo.
+      operationId: itemCardapio
+      x-source-controller: CardapioController.ItemCardapio
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: ID do item do catálogo
+      responses:
+        '200':
+          description: Item do catálogo
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/cardapio/categorias:
+    get:
+      tags: [Catálogo]
+      summary: Listar categorias
+      description: Retorna todas as categorias de formulários.
+      operationId: categorias
+      x-source-controller: CardapioController.Categorias
+      responses:
+        '200':
+          description: Lista de categorias
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/cardapio/portal:
+    get:
+      tags: [Catálogo]
+      summary: Categorias do portal
+      description: |
+        Retorna categorias do catálogo de serviços filtradas pelos grupos de acesso
+        do usuário autenticado, enriquecidas com metadados de tags e sessões de
+        navegação. Inclui categorias explícitas e inferidas. Recomendado para
+        portais e navegação self-service.
+
+        **Breaking change:** O campo `Id` é string (não integer). Categorias
+        inferidas usam IDs compostos `"idCategoria-idSessao"`.
+      operationId: portalCategorias
+      x-source-controller: CardapioController.Portal
+      responses:
+        '200':
+          description: Categorias do portal filtradas por grupos de acesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  _metadata:
+                    $ref: '#/components/schemas/Metadata'
+                  records:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        Id:
+                          type: string
+                          description: "Explícitas: Id numérico como string. Inferidas: 'idCategoria-idSessao'"
+                          example: "1"
+                        Nome:
+                          type: string
+                          example: "Suporte de TI"
+                        Imagem:
+                          type: string
+                          nullable: true
+                        Tipo:
+                          type: string
+                          enum: [explicita, inferida]
+                          example: "explicita"
+                        Favorito:
+                          type: boolean
+                          example: false
+                        Tags:
+                          type: array
+                          items:
+                            type: string
+                          example: ["tag_3", "tag_7"]
+                        NomesTags:
+                          type: array
+                          items:
+                            type: string
+                          example: ["Infraestrutura", "Hardware"]
+                        Itens:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              Id:
+                                type: integer
+                                format: int64
+                              Nome:
+                                type: string
+                              URL:
+                                type: string
+              example:
+                _metadata:
+                  Release: "9.8.0"
+                  LogAmigavel:
+                    - "Buscando grupos de acesso do usuário"
+                    - "Buscando categorias explícitas"
+                    - "Buscando categorias inferidas"
+                    - "Buscando tags de navegação"
+                    - "Enriquecendo categorias com metadados de tags"
+                  MensagensErro: []
+                records:
+                  - Id: "1"
+                    Nome: "Suporte de TI"
+                    Imagem: null
+                    Tipo: "explicita"
+                    Favorito: false
+                    Tags: ["tag_3", "tag_7"]
+                    NomesTags: ["Infraestrutura", "Hardware"]
+                    Itens:
+                      - Id: 101
+                        Nome: "Solicitação de Suporte de PC"
+                        URL: "https://sua-empresa.bdesk.com.br/askrest/v1/cardapio/101"
+                  - Id: "12-5"
+                    Nome: "Categoria Inferida X"
+                    Imagem: null
+                    Tipo: "inferida"
+                    Favorito: false
+                    Tags: ["sessao_2"]
+                    NomesTags: ["Processos Internos"]
+                    Itens: []
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/cardapio/formularios/{formulario}:
+    get:
+      tags: [Catálogo]
+      summary: Detalhes do formulário
+      description: |
+        Retorna detalhes de um formulário com conjuntos de campos.
+        Retorna objeto direto (sem envelope RetornoApiRest).
+      operationId: formulario
+      x-source-controller: CardapioController.Formulario
+      parameters:
+        - name: formulario
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do formulário
+      responses:
+        '200':
+          description: Detalhes do formulário
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormularioVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/cardapio/formularios/{formulario}/atividades:
+    get:
+      tags: [Catálogo]
+      summary: Atividades do formulário
+      description: Lista as atividades disponíveis para o formulário.
+      operationId: atividades
+      x-source-controller: CardapioController.Atividades
+      parameters:
+        - name: formulario
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do formulário
+      responses:
+        '200':
+          description: Lista de atividades
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/cardapio/formularios/{formulario}/atividades/{atividade}:
+    get:
+      tags: [Catálogo]
+      summary: Detalhes da atividade
+      description: Retorna detalhes de uma atividade específica com seus campos e conjuntos.
+      operationId: atividade
+      x-source-controller: CardapioController.Atividade
+      parameters:
+        - name: formulario
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do formulário
+        - name: atividade
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID da atividade
+      responses:
+        '200':
+          description: Detalhes da atividade
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DadosDoFormulario'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/itensselecao/{idDad}:
+    get:
+      tags: [Catálogo]
+      summary: Itens de seleção por dado adicional
+      description: Retorna valores de domínio para um dado adicional.
+      operationId: obterDominio
+      x-source-controller: ItensSelecaoController.ObterDominio
+      parameters:
+        - name: idDad
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do dado adicional
+      responses:
+        '200':
+          description: Valores de domínio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestValor'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/itensselecao/{idDad}/{idDominioPai}:
+    get:
+      tags: [Catálogo]
+      summary: Itens de seleção com filtro de domínio pai
+      description: Retorna valores de domínio filtrados por um domínio pai.
+      operationId: obterDominioComPai
+      x-source-controller: ItensSelecaoController.ObterDominio
+      parameters:
+        - name: idDad
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do dado adicional
+        - name: idDominioPai
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do domínio pai
+      responses:
+        '200':
+          description: Valores de domínio filtrados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestValor'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/itensselecao/ObterDominio:
+    get:
+      tags: [Catálogo]
+      summary: Itens de seleção (query params)
+      description: Variante com parâmetros via query string, usada pelo catálogo internamente.
+      operationId: obterDominioParaCardapio
+      x-source-controller: ItensSelecaoController.ObterDominioParaCarapio
+      parameters:
+        - name: idDad
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: idDominio
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Valores de domínio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestValor'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  # --------------------------------------------------------------------------
+  # Configuração — IcsController, ConsultasController, ListasPapeisIcController
+  # --------------------------------------------------------------------------
+
+  /v1/ics:
+    get:
+      tags: [Configuração]
+      summary: Listar itens de configuração
+      description: Retorna lista paginada de ICs. Oculto do Swagger.
+      operationId: dashboardIcs
+      x-source-controller: IcsController.Dashboard
+      responses:
+        '200':
+          description: Lista de ICs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestIcVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/ics/{ic}:
+    get:
+      tags: [Configuração]
+      summary: Detalhes do IC
+      description: Retorna detalhes de um item de configuração com dados adicionais.
+      operationId: ic
+      x-source-controller: IcsController.Ic
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+      responses:
+        '200':
+          description: Detalhes do IC
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/ics/{ic}/componentes:
+    get:
+      tags: [Configuração]
+      summary: Componentes do IC
+      description: Lista componentes associados a um IC.
+      operationId: componentesIc
+      x-source-controller: IcsController.Componentes
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+      responses:
+        '200':
+          description: Componentes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/ics/{ic}/associacoes:
+    get:
+      tags: [Configuração]
+      summary: Associações do IC
+      description: Lista ICs associados a este item de configuração.
+      operationId: associacoesIc
+      x-source-controller: IcsController.Associacoes
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+      responses:
+        '200':
+          description: Associações
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/ics/{ic}/relacoes:
+    get:
+      tags: [Configuração]
+      summary: Relações do IC
+      description: Retorna relações do IC (usuários, componentes e associações combinados).
+      operationId: relacoesIc
+      x-source-controller: IcsController.Relacoes
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+      responses:
+        '200':
+          description: Relações
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  Usuarios:
+                    type: array
+                    items:
+                      type: object
+                  Componentes:
+                    type: array
+                    items:
+                      type: object
+                  Associacoes:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/ics/{ic}/usuarios:
+    get:
+      tags: [Configuração]
+      summary: Usuários do IC
+      description: Lista usuários associados ao IC.
+      operationId: usuariosIc
+      x-source-controller: IcsController.Usuarios
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+      responses:
+        '200':
+          description: Usuários
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/ics/{ic}/relacionamentos:
+    get:
+      tags: [Configuração]
+      summary: Relacionamentos do IC
+      description: Retorna o grafo de relacionamentos do IC até N níveis de profundidade.
+      operationId: relacionamentosIc
+      x-source-controller: IcsController.Relacionamentos
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+        - name: nivel
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 3
+          description: Profundidade máxima do grafo de relacionamentos
+      responses:
+        '200':
+          description: Grafo de relacionamentos
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/ics/{ic}/listaspapeis:
+    get:
+      tags: [Configuração]
+      summary: Listas de papéis do IC
+      description: Lista as listas de papéis associadas ao IC.
+      operationId: listasPapeisDoIc
+      x-source-controller: IcsController.ListasPapeisDoIc
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+      responses:
+        '200':
+          description: Listas de papéis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/ics/{ic}/listaspapeis/{lista}:
+    get:
+      tags: [Configuração]
+      summary: Dados de uma lista de papéis do IC
+      description: Retorna detalhes de uma lista de papéis específica.
+      operationId: dadosDaListaDoIc
+      x-source-controller: IcsController.DadosDaListaDoIc
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+        - $ref: '#/components/parameters/ListaId'
+      responses:
+        '200':
+          description: Dados da lista
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/ics/{ic}/listaspapeis/{lista}/membros:
+    get:
+      tags: [Configuração]
+      summary: Membros de uma lista de papéis
+      description: Lista os membros de uma lista de papéis do IC.
+      operationId: membrosDaListaDoIc
+      x-source-controller: IcsController.MembrosDaListaDoIc
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+        - $ref: '#/components/parameters/ListaId'
+      responses:
+        '200':
+          description: Membros
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+    post:
+      tags: [Configuração]
+      summary: Alterar membros de uma lista de papéis
+      description: Adiciona ou remove membros de uma lista de papéis do IC.
+      operationId: alterarMembrosDaListaDoIc
+      x-source-controller: IcsController.AlterarMembrosDaListaDoIc
+      parameters:
+        - $ref: '#/components/parameters/IcId'
+        - $ref: '#/components/parameters/ListaId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlteracoesMembros'
+      responses:
+        '200':
+          description: Membros atualizados
+          content:
+            application/json:
+              schema:
+                type: object
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/consultas/{nome_consulta}:
+    post:
+      tags: [Configuração]
+      summary: Executar consulta dinâmica
+      description: |
+        Executa uma consulta SQL pré-definida na tabela `ParametroAvancado` por nome.
+        A consulta é carregada de `ConsultaSQLAPI/{nome_consulta}`.
+
+        Parâmetros internos (ex: `usuarioid`) são injetados automaticamente e não
+        podem ser sobrescritos pelo cliente. Demais parâmetros são passados no corpo
+        da requisição como pares chave-valor.
+      operationId: executarQuery
+      x-source-controller: ConsultasController.ExecutarQuery
+      parameters:
+        - name: nome_consulta
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Nome da consulta registrada em ParametroAvancado
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              description: Parâmetros SQL como pares chave-valor
+      responses:
+        '200':
+          description: Resultados da consulta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/listaspapeisic:
+    get:
+      tags: [Configuração]
+      summary: Listar todas as listas de papéis de IC
+      description: Retorna todas as listas de papéis de IC do sistema (global, não por IC). Oculto do Swagger.
+      operationId: listasDePapeisIc
+      x-source-controller: ListasPapeisIcController.ListasDePapeisIc
+      responses:
+        '200':
+          description: Listas de papéis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestListaIcVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+# ============================================================================
+# COMPONENTS
+# ============================================================================
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token obtido via POST /v1/login/entrar
+
+  # --- Reusable Parameters ---
+
+  parameters:
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 20
+      description: Itens por página
+    PageNumber:
+      name: pageNumber
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      description: Número da página (1-indexed)
+    RequisicaoId:
+      name: requisicao
+      in: path
+      required: true
+      schema:
+        type: integer
+      description: ID da requisição
+    IcId:
+      name: ic
+      in: path
+      required: true
+      schema:
+        type: integer
+      description: ID do item de configuração
+    ListaId:
+      name: lista
+      in: path
+      required: true
+      schema:
+        type: integer
+      description: ID da lista de papéis
+
+  # --- Reusable Responses ---
+
+  responses:
+    NaoAutorizado:
+      description: Token ausente ou inválido
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              _metadata:
+                $ref: '#/components/schemas/Metadata'
+    ErroNegocio:
+      description: Erro de negócio (ver MensagensErro)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              _metadata:
+                $ref: '#/components/schemas/Metadata'
+
+  # --- Schemas ---
+
+  schemas:
+
+    # --- Envelopes de Resposta ---
+
+    Metadata:
+      type: object
+      properties:
+        Release:
+          type: string
+        MensagensErro:
+          type: array
+          items:
+            type: string
+        LogAmigavel:
+          type: array
+          items: {}
+
+    RetornoApiLogin:
+      type: object
+      description: |
+        Envelope de resposta do login (RetornoApi<T>).
+        **Atenção:** `Dados` é uma string JSON escapada, não um objeto direto.
+      properties:
+        Dados:
+          type: string
+          description: String JSON escapada contendo o token. Requer JSON.parse() para extrair.
+        LogAmigavel:
+          type: array
+          items: {}
+        MensagensErro:
+          type: array
+          items:
+            type: string
+        Versao:
+          type: string
+
+    RetornoApiObject:
+      type: object
+      description: Envelope RetornoApi<object>
+      properties:
+        Dados:
+          type: object
+        LogAmigavel:
+          type: array
+          items: {}
+        MensagensErro:
+          type: array
+          items:
+            type: string
+        Versao:
+          type: string
+
+    RetornoApiRestGenerico:
+      type: object
+      description: Envelope padrão RetornoApiRest<T> com records genéricos.
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items: {}
+
+    RetornoApiRestString:
+      type: object
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            type: string
+
+    RetornoApiRestRequisicoes:
+      type: object
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            type: object
+
+    RetornoApiRestPerfilUsuario:
+      type: object
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            type: object
+            properties:
+              usuarioId:
+                type: integer
+              login:
+                type: string
+              dominio:
+                type: string
+              nome:
+                type: string
+              ramal:
+                type: string
+              email:
+                type: string
+              perfilId:
+                type: integer
+              perfilNome:
+                type: string
+              empresaId:
+                type: integer
+              empresaNome:
+                type: string
+              cargoId:
+                type: integer
+              cargoNome:
+                type: string
+              superiorHierarquicoId:
+                type: integer
+              superiorHierarquicoNome:
+                type: string
+              superiorHierarquicoEmail:
+                type: string
+
+    RetornoApiRestAreaVM:
+      type: object
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/AreaVM'
+
+    RetornoApiRestIcVM:
+      type: object
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/IcVM'
+
+    RetornoApiRestValor:
+      type: object
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/Valor'
+
+    RetornoApiRestListaIcVM:
+      type: object
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/ListaIcVM'
+
+    # --- Domain Models ---
+
+    LoginRequest:
+      type: object
+      required: [Login, Senha]
+      properties:
+        Login:
+          type: string
+          description: Nome de usuário
+        Senha:
+          type: string
+          description: Senha do usuário
+        Dominio:
+          type: string
+          description: Domínio de autenticação (opcional)
+
+    UsuarioVM:
+      type: object
+      description: Dados básicos do usuário (retornado sem envelope)
+      properties:
+        id:
+          type: integer
+        login:
+          type: string
+        nome:
+          type: string
+
+    DadosLicencaVM:
+      type: object
+      properties:
+        DataVencimento:
+          type: string
+          format: date-time
+          nullable: true
+
+    DashboardResponse:
+      type: object
+      properties:
+        Abertas:
+          type: integer
+        Encerradas:
+          type: integer
+        UrlRequisicoesAbertas:
+          type: string
+        UrlRequisicoesEncerradas:
+          type: string
+
+    FiltrosRequisicoes:
+      type: object
+      description: Filtros para listagem de requisições
+      properties:
+        RequisicaoId:
+          type: integer
+          nullable: true
+        AtividadeId:
+          type: integer
+          nullable: true
+        DescricoesStatus:
+          type: array
+          items:
+            type: string
+        GruposSolucionadores:
+          type: array
+          items:
+            type: integer
+        AbertoEntre:
+          $ref: '#/components/schemas/IntervaloDatas'
+        EncerradoEntre:
+          $ref: '#/components/schemas/IntervaloDatas'
+        Assunto:
+          type: string
+        IdsFormularios:
+          type: array
+          items:
+            type: integer
+        LimiteRequisicoes:
+          type: integer
+          default: 500
+        DadosAdicionais:
+          type: object
+          description: Mapa aninhado de filtros por dado adicional
+          additionalProperties:
+            type: object
+            additionalProperties:
+              $ref: '#/components/schemas/WMFiltroDadoAdicional'
+
+    FiltrosRequisicoesSimples:
+      type: object
+      description: Filtros simplificados para requisições por condição
+      properties:
+        Ids:
+          type: array
+          items:
+            type: integer
+        DescricaoOuAssunto:
+          type: string
+
+    VMFiltrosRequisicoesAvancado:
+      type: object
+      description: Filtros avançados para busca de requisições
+      properties:
+        Requisicao:
+          type: integer
+          nullable: true
+        Area:
+          type: integer
+          nullable: true
+        Formulario:
+          type: object
+          properties:
+            Id:
+              type: integer
+              nullable: true
+            Dados:
+              type: array
+              items:
+                type: object
+                properties:
+                  idDadCon:
+                    type: integer
+                  tpDado:
+                    type: integer
+                  valor:
+                    type: array
+                    items:
+                      type: string
+        DadosAdicionais:
+          type: array
+          items:
+            type: object
+            properties:
+              DadoAdicionalId:
+                type: integer
+                nullable: true
+              Valor:
+                type: array
+                items: {}
+              ValorParcial:
+                type: array
+                items: {}
+        Categoria:
+          type: integer
+          nullable: true
+        Subcategoria:
+          type: integer
+          nullable: true
+        Tarefa:
+          type: integer
+          nullable: true
+        Localizacao:
+          type: integer
+          nullable: true
+        Assunto:
+          type: string
+        AbertasDesde:
+          type: string
+          format: date-time
+          nullable: true
+        AbertasAte:
+          type: string
+          format: date-time
+          nullable: true
+        EncerradasDesde:
+          type: string
+          format: date-time
+          nullable: true
+        EncerradasAte:
+          type: string
+          format: date-time
+          nullable: true
+        UltimaAcaoExecutada_Id:
+          type: string
+        UltimaAcaoExecutada_Desde:
+          type: string
+          format: date-time
+          nullable: true
+        UltimaAcaoExecutada_Ate:
+          type: string
+          format: date-time
+          nullable: true
+        Solicitantes:
+          type: array
+          items:
+            $ref: '#/components/schemas/FiltroParticipante'
+        Solicitados:
+          type: array
+          items:
+            $ref: '#/components/schemas/FiltroParticipante'
+        Responsaveis:
+          type: array
+          items:
+            $ref: '#/components/schemas/FiltroParticipante'
+        Beneficiados:
+          type: array
+          items:
+            $ref: '#/components/schemas/FiltroParticipante'
+        Registradores:
+          type: array
+          items:
+            $ref: '#/components/schemas/FiltroParticipante'
+        ICs:
+          type: array
+          items:
+            $ref: '#/components/schemas/FiltroParticipante'
+
+    FiltrosHistorico:
+      type: object
+      description: Filtros para histórico da requisição
+      properties:
+        IdAcao:
+          type: array
+          items:
+            type: integer
+        IdFrmAcao:
+          type: array
+          items:
+            type: integer
+        CdAcao:
+          type: array
+          items:
+            type: string
+
+    RequisicoesDetalhesVM:
+      type: object
+      description: |
+        Detalhes completos de uma requisição. Retornado diretamente (sem envelope RetornoApiRest).
+        O campo Conjuntos é um dicionário (não array): chave = nome da seção, valor = campos com valores.
+      properties:
+        Conjuntos:
+          type: object
+          description: |
+            Dados da requisição organizados por seção. Estrutura:
+            `{ "Detalhes Do Pedido": { "Assunto": "...", "Status": "..." }, "Agendamento do Pedido": { ... }, "Participantes": { ... }, "IdsParticipantes": { "REG": { "IdTipoPapel": 1, "IdParticipante": 123 } } }`
+          additionalProperties: true
+        UrlDadosAdicionais:
+          type: string
+        UrlAcoes:
+          type: string
+        UrlHistorico:
+          type: string
+        UrlRequisicoesVinculadas:
+          type: string
+        MensagensErro:
+          type: array
+          items:
+            type: string
+
+    RequisicaoListItem:
+      type: object
+      description: Registro de requisição retornado nas listagens (abertas, encerradas, busca)
+      properties:
+        RequisicaoId:
+          type: integer
+          description: ID da requisição
+        Assunto:
+          type: string
+        Status:
+          type: string
+          description: Descrição do status (ex. "Em Andamento", "Aberta", "Encerrada")
+        FormularioId:
+          type: integer
+        AtividadeId:
+          type: integer
+          nullable: true
+        FormularioStatusId:
+          type: integer
+        ProcessoId:
+          type: integer
+          nullable: true
+        DescricaoAtividade:
+          type: string
+        DescricaoRequisicao:
+          type: string
+        DescricaoRotinaOuFormulario:
+          type: string
+        UltimaAcao:
+          type: string
+        UltimaAcaoQuando:
+          type: string
+          format: date-time
+        UltimaAcaoQuem:
+          type: string
+        Solicitante:
+          type: string
+        Solicitado:
+          type: string
+        Beneficiado:
+          type: string
+        Responsavel:
+          type: string
+        DataAbertura:
+          type: string
+          format: date-time
+        DataInicioPrevisto:
+          type: string
+          format: date-time
+        DataFim:
+          type: string
+          format: date-time
+          nullable: true
+        DataFimPrevisto:
+          type: string
+          format: date-time
+          nullable: true
+        DataInicioReal:
+          type: string
+          format: date-time
+          nullable: true
+        DataFimReal:
+          type: string
+          format: date-time
+          nullable: true
+        GrupoAtualId:
+          type: integer
+          nullable: true
+        FlagSLA:
+          type: string
+        UrlDetalhesRequisicao:
+          type: string
+        UrlHistoricoRequisicao:
+          type: string
+
+    AtividadeListItem:
+      type: object
+      description: Atividade retornada pela listagem de atividades de um formulário (resposta do controller é objeto anônimo)
+      properties:
+        Id:
+          type: integer
+          description: ID da atividade (mapeado de AtividadeId)
+        Nome:
+          type: string
+          description: Nome da atividade (mapeado de Descricao)
+        Descricao:
+          type: string
+          nullable: true
+          description: Descrição completa (mapeado de DescricaoCompleta)
+        FlagDocumento:
+          type: boolean
+        DescricaoAlertaDoc:
+          type: string
+          description: Alerta sobre documentação obrigatória
+        Categoria:
+          type: object
+          properties:
+            Id:
+              type: integer
+        SubCategoria:
+          type: object
+          properties:
+            Id:
+              type: integer
+        Grupos:
+          type: array
+          description: Grupos solucionadores disponíveis para esta atividade
+          items:
+            type: object
+            properties:
+              Id:
+                type: integer
+                description: GrupoId
+              Nome:
+                type: string
+                description: DescricaoDoGrupo
+              SLA:
+                type: integer
+                description: SLA em horas
+
+    VMExecutarAcaoApi:
+      type: object
+      description: Dados para execução de uma ação de workflow
+      required: [Id]
+      properties:
+        Id:
+          type: string
+          description: Identificador da ação no formato "Nome [CODIGO]" (ex. "Encerrar [ENC]")
+        Descricao:
+          type: string
+          description: Descrição/comentário da ação
+        prioridade:
+          type: integer
+          format: int16
+          nullable: true
+          description: Nova prioridade (usado com ALTPRI)
+        ConjuntosDadosAdicionais:
+          type: object
+          description: Dados adicionais para atualizar junto com a ação
+          additionalProperties:
+            type: object
+            additionalProperties: true
+        IdRequisicaoAVincular:
+          type: integer
+          nullable: true
+          description: ID da requisição a vincular (usado com VINC)
+        Data:
+          type: string
+          description: Data da ação
+        Motivo:
+          type: integer
+          format: int16
+          nullable: true
+          description: ID do motivo (usado com ENC)
+        NovoSolicitado:
+          type: string
+          description: ID do novo solicitado (usado com DIR)
+        DescricaoRequisicao:
+          type: string
+          description: Nova descrição da requisição (usado com ALTDES)
+        AssuntoRequisicao:
+          type: string
+          description: Novo assunto (usado com ALTDES)
+        AtividadeId:
+          type: integer
+          nullable: true
+          description: Nova atividade (usado com RECAT)
+        GrupoId:
+          type: integer
+          nullable: true
+          description: Novo grupo de atendimento (usado com DIR)
+        DataFimPrevisto:
+          type: string
+          description: Nova data de fim previsto
+        ManterGrupo:
+          type: boolean
+          nullable: true
+          description: Se deve manter o grupo atual (usado com DIR)
+
+    VMAbrirRequisicao:
+      type: object
+      description: |
+        Dados para abertura de requisição.
+        O campo `Formulario` é o ID do formulário (não confundir com IdFormulario).
+        Os dados do formulário são passados via `Conjuntos`, um dicionário
+        cujas chaves são os nomes dos conjuntos e os valores são os campos preenchidos.
+      required: [Formulario]
+      properties:
+        Formulario:
+          type: integer
+          description: ID do formulário (FormularioId)
+        Conjuntos:
+          type: object
+          description: |
+            Dados do formulário organizados por conjunto.
+            Chave: nome do conjunto (ex. "DadosBasicos").
+            Valor: objeto com chave do campo → valor preenchido.
+          additionalProperties: true
+
+    VMAbrirRequisicaoViaPortal:
+      type: object
+      description: |
+        Dados para abertura de requisição via portal (catálogo).
+        Usa IdItemCardapio em vez de Formulario.
+      required: [IdItemCardapio]
+      properties:
+        IdItemCardapio:
+          type: integer
+          format: int64
+          description: ID do item do catálogo (cardápio)
+        IdRascunho:
+          type: integer
+          format: int64
+          description: ID do rascunho (0 se não houver)
+        Conjuntos:
+          type: object
+          description: |
+            Dados organizados por conjunto. Estrutura:
+            `{ "NomeConjunto": [{ "ChaveCampo": valor, ... }] }`
+            O valor é um array de objetos (mesmo para conjuntos não-múltiplos).
+          additionalProperties:
+            type: array
+            items:
+              type: object
+              additionalProperties: true
+
+    DesdobrarRequisicaoVM:
+      type: object
+      description: Dados para desdobramento de requisição. Herda de VMAbrirRequisicao.
+      allOf:
+        - $ref: '#/components/schemas/VMAbrirRequisicao'
+        - type: object
+          properties:
+            IdRequisicaoADesdobrar:
+              type: integer
+              nullable: true
+              description: ID da requisição original a ser desdobrada
+
+    UploadVM:
+      type: object
+      properties:
+        Id:
+          type: integer
+        MensagensErro:
+          type: array
+          items:
+            type: string
+
+    PesquisaVM:
+      type: object
+      description: Dados da pesquisa de satisfação
+      properties:
+        PossuiPesquisa:
+          type: boolean
+        Perguntas:
+          type: array
+          items:
+            $ref: '#/components/schemas/PerguntaDataContract'
+        Requisicao:
+          type: string
+        ReqDescricao:
+          type: string
+        ResponderMaisDeUmaVez:
+          type: boolean
+        Anonima:
+          type: boolean
+        PesquisaJaRespondida:
+          type: boolean
+
+    PesquisaRespondida:
+      type: object
+      description: Resposta da pesquisa de satisfação
+      properties:
+        IdRequisicao:
+          type: integer
+        Respostas:
+          type: array
+          items:
+            type: object
+            properties:
+              IdPergunta:
+                type: integer
+              IdOpcao:
+                type: integer
+                nullable: true
+              Motivo:
+                type: string
+              RespostaDescritiva:
+                type: string
+              RespostaComentario:
+                type: string
+              UsuarioSeAbsteve:
+                type: boolean
+                nullable: true
+
+    AreaVM:
+      type: object
+      properties:
+        Id:
+          type: integer
+        Nome:
+          type: string
+        Formularios:
+          type: array
+          items:
+            type: object
+            properties:
+              Id:
+                type: integer
+              Nome:
+                type: string
+              Versao:
+                type: string
+              PrazoMinimoDeAtendimento:
+                type: integer
+                description: Prazo mínimo de atendimento (em horas)
+              Origens:
+                type: array
+                nullable: true
+                description: Origens disponíveis para o formulário
+                items:
+                  type: object
+                  properties:
+                    Id:
+                      type: integer
+                    Nome:
+                      type: string
+              Url:
+                type: string
+                description: URL para obter detalhes do formulário
+
+    FormularioVM:
+      type: object
+      description: |
+        Detalhes do formulário retornado por GET /v1/cardapio/formularios/{formulario}.
+        ATENÇÃO: Este endpoint remove o campo `Apresentacao` de todos os campos (OcultarCampoApresentacao).
+        Para renderização dinâmica, use GET /v1/cardapio/{id} que preserva Apresentacao.
+      properties:
+        Id:
+          type: integer
+        Nome:
+          type: string
+        Versao:
+          type: string
+        PrazoMinimoDeAtendimento:
+          type: integer
+        UrlAtividades:
+          type: string
+          description: URL para listar atividades do formulário
+        AbrirRequisicao:
+          type: string
+          description: URL para abrir requisição com este formulário
+        DesdobrarRequisicao:
+          type: string
+          description: URL para desdobrar requisição
+        Conjuntos:
+          type: array
+          description: Conjuntos de campos do formulário (mesclados)
+          items:
+            $ref: '#/components/schemas/ConjuntoCampos'
+
+    DadosDoFormulario:
+      type: object
+      description: |
+        Dados completos do formulário com campos. Retornado pelo endpoint
+        GET /v1/cardapio/formularios/{formulario}/atividades/{atividade}.
+        Nota: NÃO contém ObjAtividade — apenas ObjFormulario e Conjuntos.
+      properties:
+        ObjFormulario:
+          $ref: '#/components/schemas/Formulario'
+        Conjuntos:
+          type: array
+          description: Conjuntos de campos do formulário (mesclados com a atividade)
+          items:
+            $ref: '#/components/schemas/ConjuntoCampos'
+
+    Formulario:
+      type: object
+      description: Objeto completo do formulário (template de serviço)
+      properties:
+        FormularioId:
+          type: integer
+          description: ID do formulário
+        Descricao:
+          type: string
+          description: Descrição curta do formulário
+        DescricaoCompleta:
+          type: string
+          nullable: true
+          description: Descrição completa (longa)
+        DescricaoParaAnexarDocumentos:
+          type: string
+          nullable: true
+          description: Instrução para upload de documentos
+        Nome:
+          type: string
+          description: Nome interno do formulário
+        AreaId:
+          type: integer
+          nullable: true
+          description: ID da área organizacional
+        PrazoMinimo:
+          type: integer
+          description: Prazo mínimo de atendimento (em horas)
+        ProcessoId:
+          type: integer
+        RotinaId:
+          type: integer
+        HasOrigem:
+          type: boolean
+          description: Se o formulário tem origens configuradas
+        IsCategorizado:
+          type: boolean
+          description: Se requer categorização por atividade
+        IsExpansivel:
+          type: boolean
+        IsOffline:
+          type: boolean
+        AbreArea:
+          type: boolean
+          nullable: true
+        AtividadeId:
+          type: string
+          description: ID da atividade padrão (string, pode ser "0")
+        GrupoAdmin:
+          type: object
+          nullable: true
+          description: Grupo administrador do formulário
+        TipoRotina:
+          type: string
+        TipoPrazo:
+          type: string
+          nullable: true
+        TipoReporteHora:
+          type: string
+        Versao:
+          type: string
+        FormulariosCategorias:
+          type: array
+          nullable: true
+          items:
+            type: object
+        FormularioOrigem:
+          type: array
+          description: Origens disponíveis para o formulário
+          items:
+            type: object
+            properties:
+              FormularioId:
+                type: integer
+              FormularioOrigemId:
+                type: integer
+              Descricao:
+                type: string
+        TipoControlaCusto:
+          type: string
+        TipoControlaHora:
+          type: string
+        TipoLocalizacao:
+          type: string
+        CategorizacaoAtividade:
+          type: string
+          nullable: true
+        CopiarAssuntoTarefa:
+          type: boolean
+        Disponivel:
+          type: boolean
+        FiltrarTipoTarefa:
+          type: boolean
+        Ativo:
+          type: boolean
+          nullable: true
+        DirecionaAtividade:
+          type: boolean
+        DirecionaArea:
+          type: boolean
+        RequerAprovacao:
+          type: boolean
+        IdFrmPapelAprovador:
+          type: integer
+          nullable: true
+
+    IcVM:
+      type: object
+      properties:
+        Id:
+          type: integer
+        Nome:
+          type: string
+        NomeCompleto:
+          type: string
+        Tipo:
+          type: object
+          properties:
+            Id:
+              type: integer
+            Nome:
+              type: string
+        Classe:
+          type: object
+          properties:
+            Id:
+              type: integer
+            Nome:
+              type: string
+        Status:
+          type: object
+          properties:
+            Id:
+              type: integer
+            Nome:
+              type: string
+
+    Valor:
+      type: object
+      description: |
+        Item de domínio usado em seleções, dropdowns e resultados de participantes.
+        Atenção: `Id` é string (não integer) e o texto de exibição é `Texto` (não Nome).
+        Para participantes, o campo `Id` contém um JSON serializado: `{"IdParticipante":123,"IdTipoPapel":1}`.
+      properties:
+        Id:
+          type: string
+          description: ID do valor (string). Para participantes, é JSON serializado com IdParticipante e IdTipoPapel.
+        Texto:
+          type: string
+          description: Texto de exibição do valor
+        Legenda:
+          type: string
+          nullable: true
+          description: Legenda/tooltip opcional (pode conter HTML)
+        IdDominioPai:
+          type: string
+          description: ID do domínio pai para seleções em cascata (vazio se não houver)
+
+    ListaIcVM:
+      type: object
+      description: Lista de papéis de IC
+      properties:
+        Id:
+          type: integer
+        Nome:
+          type: string
+
+    AlteracoesMembros:
+      type: object
+      description: Alterações de membros de uma lista de papéis
+      properties:
+        Remover:
+          type: array
+          description: IDs dos membros a remover
+          items:
+            type: string
+        Inserir:
+          type: array
+          description: IDs dos membros a inserir
+          items:
+            type: string
+
+    # --- Supporting Types ---
+
+    IntervaloDatas:
+      type: object
+      description: Intervalo de datas para filtros
+      properties:
+        Inicio:
+          type: string
+          format: date-time
+        Fim:
+          type: string
+          format: date-time
+
+    WMFiltroDadoAdicional:
+      type: object
+      description: Filtro por dado adicional
+      properties:
+        ValorFinal:
+          type: string
+        ValoresTexto:
+          type: array
+          items:
+            type: string
+
+    FiltroParticipante:
+      type: object
+      description: Filtro por participante (usado em busca avançada)
+      properties:
+        Participante:
+          type: integer
+        TipoPapel:
+          type: integer
+
+    PerguntaDataContract:
+      type: object
+      description: Pergunta da pesquisa de satisfação
+      properties:
+        Id:
+          type: integer
+        Texto:
+          type: string
+        Complemento:
+          type: string
+        Tipo:
+          type: string
+        IncluirComentario:
+          type: boolean
+        Obrigatoria:
+          type: boolean
+        PermitirAbstencao:
+          type: boolean
+        TipoOpcao:
+          type: string
+        RespostasPossiveis:
+          type: array
+          items:
+            type: object
+            properties:
+              Id:
+                type: integer
+              Texto:
+                type: string
+              Peso:
+                type: integer
+
+    ConjuntoCampos:
+      type: object
+      description: Conjunto (seção) de campos de um formulário
+      properties:
+        Id:
+          type: integer
+          nullable: true
+        Nome:
+          type: string
+          description: Nome de exibição do conjunto
+        Chave:
+          type: string
+          description: Identificador único do conjunto (usado como chave nos payloads)
+        Multiplo:
+          type: boolean
+          description: Se permite múltiplas instâncias (ex. tabela de itens)
+        PermitirUpload:
+          type: boolean
+          description: Se permite upload de arquivos neste conjunto
+        Condicoes:
+          type: array
+          nullable: true
+          description: Condições de visibilidade do conjunto
+          items:
+            $ref: '#/components/schemas/Condicao'
+        Posicao:
+          type: integer
+          description: Ordem de exibição do conjunto
+        Visivel:
+          type: boolean
+          description: Se o conjunto é visível por padrão
+        Dados_Adicionais_Excel:
+          type: boolean
+          description: Se permite importação de dados via Excel
+        Campos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Campo'
+
+    ConjuntoMesclado:
+      type: object
+      description: |
+        Conjunto mesclado (ASK + Atendame) retornado por GET /v1/cardapio/{id}.
+        Difere de ConjuntoCampos por incluir campos de ambas as fontes mesclados
+        e preservar o campo Apresentacao nos campos. Estrutura idêntica a ConjuntoCampos.
+      allOf:
+        - $ref: '#/components/schemas/ConjuntoCampos'
+
+    Campo:
+      type: object
+      description: |
+        Campo de formulário dentro de um Conjunto. O tipo de apresentação visual é `Apresentacao`
+        (TextBox, ComboBox, TextArea, ListBox, Calendar, Radio, CheckBox, CaixaDeTextoAutocomplete, DateHour).
+        O tipo de dado subjacente é `TipoDeDado` (String, Date, Integer, Decimal, Boolean, Money, Text, Domain, Table, DateHour, etc.).
+      properties:
+        Nome:
+          type: string
+          description: Nome de exibição do campo
+        Legenda:
+          type: string
+          description: Legenda/placeholder do campo
+        Tamanho:
+          type: string
+          description: Tamanho máximo (em caracteres)
+        Apresentacao:
+          type: string
+          nullable: true
+          description: |
+            Tipo de controle de UI. Valores possíveis:
+            TextBox (1), ComboBox (2), TextArea (3), ListBox (4),
+            Calendar (5), Radio (6), CheckBox (7),
+            CaixaDeTextoAutocomplete (8), DateHour (10).
+            Omitido do JSON quando null.
+          enum: [TextBox, ComboBox, TextArea, ListBox, Calendar, Radio, CheckBox, CaixaDeTextoAutocomplete, DateHour]
+        TipoDeDado:
+          type: string
+          description: |
+            Tipo de dado subjacente. Valores possíveis:
+            Char (1), Date (2), Integer (3), Decimal (4), Boolean (5),
+            Money (6), Text (7), Domain (8), Table (9), Action (10),
+            ListaDefinidaPeloUsuario (11), Procedure (12),
+            ProcedureData (13), ProcedureMoney (14), DateHour (15).
+          enum: [String, Date, Integer, Decimal, Boolean, Money, Text, Domain, Table, Action, ListaDefinidaPeloUsuario, Procedure, ProcedureData, ProcedureMoney, DateHour]
+        Chave:
+          type: string
+          description: Identificador único do campo (usado como chave nos payloads)
+        Obrigatoriedade:
+          type: boolean
+          description: Se o campo é obrigatório
+        Modificar:
+          type: boolean
+          description: Se o campo é editável
+        Condicional:
+          type: boolean
+          description: Se o campo tem visibilidade condicional
+        DadoAdicionalId:
+          type: integer
+          nullable: true
+          description: ID do dado adicional vinculado. Omitido do JSON quando null.
+        Opcoes:
+          nullable: true
+          $ref: '#/components/schemas/Opcoes'
+        BotoesDadosExternos:
+          type: array
+          nullable: true
+          description: Botões de dados externos vinculados ao campo
+          items:
+            type: object
+        AcaoDadoAdicional:
+          type: array
+          nullable: true
+          description: Ações configuradas para o dado adicional
+          items:
+            type: object
+        Valor:
+          description: Valor padrão do campo (tipo varia conforme TipoDeDado). Para participantes pode ser JSON serializado.
+          nullable: true
+        Exemplo:
+          type: string
+          nullable: true
+          description: Exemplo de preenchimento
+        Validacao:
+          type: string
+          nullable: true
+          description: Regra de validação (ex. regex, CPF, CNPJ, SONUM)
+        MensagemObrigatoriedade:
+          type: string
+          description: Mensagem personalizada de obrigatoriedade
+        ConjuntoItem:
+          type: boolean
+          description: Se o campo pertence a um item de conjunto múltiplo
+        IntervaloData:
+          type: string
+          nullable: true
+          description: Restrição de intervalo de data (ex. "futuro", "passado")
+        Processo:
+          type: boolean
+          description: Se o campo é de processo
+
+    Opcoes:
+      type: object
+      description: Configuração de opções para campos de seleção (ComboBox, ListBox, Radio, Search)
+      properties:
+        Url:
+          type: string
+          nullable: true
+          description: URL para busca dinâmica de valores (pode conter `{termo}` como placeholder)
+        Valores:
+          type: array
+          description: Valores pré-carregados
+          items:
+            $ref: '#/components/schemas/Valor'
+        Multiplo:
+          type: boolean
+          description: Se permite seleção múltipla
+        Condicao:
+          nullable: true
+          $ref: '#/components/schemas/Condicao'
+        Dependencia:
+          nullable: true
+          $ref: '#/components/schemas/Dependencia'
+
+    Condicao:
+      type: object
+      description: Condição de visibilidade ou filtro
+      properties:
+        Efeito:
+          type: string
+          description: Efeito a aplicar (ex. "Mostrar", "Ocultar")
+        Valor:
+          type: string
+          description: Valor de comparação
+        Intervalo:
+          type: object
+          nullable: true
+          properties:
+            Min:
+              type: string
+            Max:
+              type: string
+        Operador:
+          type: string
+          description: Operador de comparação
+        Campo:
+          type: string
+          description: Chave do campo de referência
+        Conjunto:
+          type: string
+          description: Chave do conjunto de referência
+
+    Dependencia:
+      type: object
+      description: Dependência de campo pai para seleções em cascata
+      properties:
+        Campo:
+          type: string
+          description: Chave do campo pai
+        URL:
+          type: string
+          description: URL para buscar valores filtrados pelo pai
+        DominioPrecarregado:
+          description: Domínio pré-carregado (pode ser objeto ou null)
+          nullable: true

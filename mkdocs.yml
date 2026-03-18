@@ -1,0 +1,73 @@
+site_name: API BDesk — Guia do Usuario
+site_url: https://bdeskapp.github.io/api
+site_description: Documentacao da API REST do BDesk para equipes de TI
+
+theme:
+  name: material
+  language: pt-BR
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Modo escuro
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Modo claro
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+
+repo_url: https://github.com/bdeskapp/api
+repo_name: bdeskapp/api
+
+nav:
+  - Inicio: index.md
+  - Primeiros Passos: primeiros-passos.md
+  - Autenticacao: autenticacao.md
+  - Guias:
+    - Criar Requisicoes: guias/criar-requisicoes.md
+    - Consultar Requisicoes: guias/consultar-requisicoes.md
+    - Acoes de Workflow: guias/acoes-workflow.md
+    - Anexos: guias/anexos.md
+    - Catalogo de Servicos: guias/catalogo-servicos.md
+    - Integracoes de Monitoramento: guias/integracoes-monitoramento.md
+    - Gestao de ICs: guias/gestao-ics.md
+    - Participantes: guias/participantes.md
+  - Referencia:
+    - Erros: referencia/erros.md
+    - Paginacao: referencia/paginacao.md
+    - Glossario: referencia/glossario.md
+    - Limites: referencia/limites.md
+  - Exemplos:
+    - cURL: exemplos/curl.md
+    - Python: exemplos/python.md
+    - PowerShell: exemplos/powershell.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+
+plugins:
+  - search:
+      lang: pt
