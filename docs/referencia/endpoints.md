@@ -6,7 +6,8 @@ Navegue todos os 72 endpoints da API BDesk com exemplos de requisicao e resposta
 
 <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
 <script>
-  Redoc.init('../openapi.yaml', {
+  var base = window.location.pathname.split('/referencia/')[0];
+  Redoc.init(base + '/openapi.yaml', {
     scrollYOffset: 60,
     hideDownloadButton: false,
     expandResponses: '200',
