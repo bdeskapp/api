@@ -2,20 +2,6 @@
 
 Navegue todos os 72 endpoints da API BDesk com exemplos de requisicao e resposta.
 
-<div id="redoc-container"></div>
+<a href="../redoc.html" target="_blank" style="display:inline-block;padding:12px 24px;background:#3f51b5;color:#fff;border-radius:6px;text-decoration:none;font-weight:bold;font-size:16px;">Abrir Referencia de Endpoints</a>
 
-<script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
-<script>
-  var base = window.location.pathname.split('/referencia/')[0];
-  Redoc.init(base + '/openapi.yaml', {
-    scrollYOffset: 60,
-    hideDownloadButton: false,
-    expandResponses: '200',
-    pathInMiddlePanel: true,
-    theme: {
-      colors: { primary: { main: '#3f51b5' } },
-      typography: { fontSize: '15px' },
-      rightPanel: { backgroundColor: '#1a1a2e' }
-    }
-  }, document.getElementById('redoc-container'));
-</script>
+A referencia interativa abre em uma nova aba com visualizacao completa (Redoc).
