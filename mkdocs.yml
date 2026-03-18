@@ -54,6 +54,7 @@ nav:
     - cURL: exemplos/curl.md
     - Python: exemplos/python.md
     - PowerShell: exemplos/powershell.md
+  - Referencia de Endpoints: referencia/endpoints.md
 
 markdown_extensions:
   - admonition

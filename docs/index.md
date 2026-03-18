@@ -40,13 +40,7 @@ A API REST do BDesk permite automatizar operacoes da plataforma diretamente dos 
 
 ## Referencia Completa de Endpoints
 
-Para uma referencia interativa de todos os endpoints, gere o site Redoc:
-
-```bash
-npx @redocly/cli build-docs docs/ASKREST/openapi.yaml -o docs/ASKREST/user-guide/api-reference.html
-```
-
-Abra `api-reference.html` no navegador para navegar todos os 72 endpoints com exemplos.
+Consulte a [Referencia de Endpoints](referencia/endpoints.md) para navegar todos os 72 endpoints com exemplos de requisicao e resposta.
 
 ---
 
