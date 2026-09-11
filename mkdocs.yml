@@ -45,6 +45,13 @@ nav:
     - Integracoes de Monitoramento: guias/integracoes-monitoramento.md
     - Gestao de ICs: guias/gestao-ics.md
     - Participantes: guias/participantes.md
+  - Envio de Eventos:
+    - Visao Geral: eventos/index.md
+    - Evento de Acao: eventos/acao.md
+    - Evento de Dado Basico: eventos/dado-basico.md
+    - Evento de Dado Adicional: eventos/dado-adicional.md
+    - Evento de Participante: eventos/participante.md
+    - Configuracao: eventos/configuracao.md
   - Referencia:
     - Erros: referencia/erros.md
     - Paginacao: referencia/paginacao.md
