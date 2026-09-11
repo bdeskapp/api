@@ -108,9 +108,15 @@ Dentro de `data`, alguns blocos aparecem em **todos** os tipos de evento:
 }
 ```
 
-!!! note "Campos adicionais podem surgir"
-    Trate o JSON de forma tolerante: novos campos podem ser incluidos em versoes futuras sem
-    que `event_version` mude. Ignore o que voce nao reconhece, em vez de rejeitar a mensagem.
+!!! warning "Use somente os campos documentados"
+    O payload pode conter campos alem dos descritos nesta documentacao. Eles nao fazem parte do
+    contrato publico e podem mudar de conteudo ou deixar de existir a qualquer momento, sem
+    alteracao de `event_version`.
+
+    Construa o seu consumidor sobre os campos documentados e **ignore os demais** — em especial,
+    nao deduza o significado de um campo pelo nome dele. Um parser tolerante, que nao rejeita a
+    mensagem ao encontrar campo desconhecido, e requisito; interpretar campo nao documentado e
+    risco de quebra silenciosa quando o comportamento mudar.
 
 ---
 
@@ -186,7 +192,7 @@ endpoint. Nao construa fluxos que dependam de entrega instantanea.
 | **Responda rapido** — enfileire e processe em segundo plano | Respostas lentas podem gerar timeout, que conta como falha e consome uma das 3 tentativas |
 | **Seja idempotente** | Consequencia direta da entrega at-least-once: processar o mesmo evento duas vezes nao pode duplicar registros nem disparar acoes repetidas |
 | **Registre `event_id` e `timestamp` em log** | Sao as chaves para investigar qualquer divergencia junto ao suporte BDesk |
-| **Aceite campos desconhecidos** | Evita quebra quando novos campos forem adicionados ao payload |
+| **Aceite, mas ignore, campos nao documentados** | Nao rejeite a mensagem ao encontrar campo extra; tambem nao construa logica sobre ele. Apenas os campos documentados tem contrato |
 | **Responda 200 tambem para eventos que voce ignora** | Se um tipo de evento nao interessa ao seu sistema, descarte-o e responda 200. Responder erro so gera retentativas inuteis |
 
 ---

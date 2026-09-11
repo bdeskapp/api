@@ -73,6 +73,14 @@ Descreve a mudanca de participante.
     chave de correlacao. Para correlacionar com cadastros do seu lado, prefira `participant_id`
     combinado com `role_code`.
 
+!!! warning "Use apenas os campos documentados acima"
+    O bloco `change` pode trazer campos alem dos tres descritos nesta tabela. Eles nao fazem parte
+    do contrato publico e podem mudar sem aviso — ignore-os.
+
+    Em especial: **para identificar o papel do participante, use sempre `role_code`**, e nao outro
+    campo com prefixo `role_`. O `role_code` e o unico identificador de papel com significado
+    documentado e estavel.
+
 ---
 
 ## Codigos de papel (`role_code`)
@@ -109,10 +117,15 @@ A tabela abaixo lista os papeis mais comuns e seu significado:
     Essa e uma caracteristica do contrato: o evento funciona como um **sinal de mudanca**, nao como
     um diario de alteracoes.
 
-    **Orientacao pratica:** trate o evento como um sinal de que vale reconsultar o estado. Se o seu
-    consumidor precisa saber quem esta participando da requisicao **naquele momento**, consulte o
-    endpoint de participantes da requisicao e use a resposta como fonte da verdade. O evento diz
-    *quando* olhar; a consulta diz *o que* mudou.
+    **Orientacao pratica:** ha dois caminhos, conforme a sua necessidade.
+
+    - **Para distinguir inclusao de remocao**, assine tambem os eventos de Acao
+      `ticket.action.participant_added` e `ticket.action.participant_removed`, que identificam
+      explicitamente cada caso. Veja [Evento de Acao](acao.md).
+    - **Para saber quem esta participando naquele momento**, consulte o endpoint de participantes
+      da requisicao e use a resposta como fonte da verdade.
+
+    O evento de participante diz *quando* olhar; o evento de acao ou a consulta dizem *o que* mudou.
 
 Consulte o guia de [Participantes](../guias/participantes.md) para saber como buscar participantes
 e interpretar os papeis retornados pela API.

@@ -105,12 +105,16 @@ Cada acao de workflow tem um codigo curto e um `event_type` correspondente:
 | `DESD` | `ticket.action.split` | Desdobrada |
 | `VINC` | `ticket.action.linked` | Vinculada |
 | `APONT` | `ticket.action.time_logged` | Apontamento de horas |
+| `INCPAR` | `ticket.action.participant_added` | Participante incluido |
+| `EXCPAR` | `ticket.action.participant_removed` | Participante removido |
+| `CONV` | `ticket.action.participants_summoned` | Participantes convocados |
 
 Alem dessas, existe a variacao de anexo, descrita mais adiante:
 
 | Situacao | `event_type` |
 |---|---|
-| Acao que anexa um documento | `ticket.action.attached_by_user` |
+| Acao que anexa um documento, com os dados do arquivo | `ticket.action.attached_by_user` |
+| Acao de anexo sem os dados do arquivo | `ticket.action.document_attached` ou `ticket.action.document_attached_by_user` |
 
 !!! warning "Trate `event_type` desconhecido de forma tolerante"
     A lista acima **nao e exaustiva**. O BDesk suporta acoes adicionais, e acoes que nao
@@ -266,7 +270,7 @@ campo adicional `document`:
         "name": "Joao Silva"
       },
       "document": {
-        "id": 56789,
+        "id": "56789",
         "url": "https://sua-empresa.bdesk.com.br/Requisicao/Documento/56789"
       }
     },
@@ -306,7 +310,10 @@ duplicatas antes de aplicar qualquer efeito colateral.
 ```text
 se event_type == "ticket.action.closed"        -> fechar chamado espelho
 se event_type == "ticket.action.assigned"      -> atualizar responsavel
-se event_type == "ticket.action.attached_by_user" -> baixar anexo via endpoint REST
+se event_type em ("ticket.action.attached_by_user",
+                  "ticket.action.document_attached",
+                  "ticket.action.document_attached_by_user") -> tratar anexo
+    (o objeto data.execution.document so vem no primeiro caso)
 senao                                          -> registrar em log e seguir
 ```
 

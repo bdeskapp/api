@@ -117,10 +117,20 @@ opcao. Isso torna o valor diretamente utilizavel para exibicao e notificacao.
 Um campo que tenha sido limpo pode chegar como `null` ou como texto vazio (`""`), dependendo do
 tipo do campo. Trate as duas formas como ausencia de valor.
 
-!!! note "O evento traz o valor novo"
-    O evento informa o valor resultante da alteracao. Se o seu fluxo precisa comparar com o valor
-    anterior, mantenha o ultimo valor conhecido no seu proprio armazenamento e faca a comparacao
-    ao receber o evento seguinte.
+!!! warning "Este evento nao traz o valor anterior"
+    O bloco `change` informa apenas o valor resultante (`new_value`). Diferente do
+    [Evento de Dado Basico](dado-basico.md), que traz os dois lados da alteracao, aqui nao ha
+    valor anterior.
+
+    Se o seu fluxo depende de comparar antes e depois, o consumidor precisa manter o ultimo valor
+    conhecido de cada campo no proprio armazenamento. Ao planejar isso, considere que:
+
+    - **O primeiro evento de um campo chega sem base de comparacao.** Para ter um ponto de partida,
+      consulte os dados adicionais da requisicao pela API antes de comecar a processar eventos
+      daquele campo.
+    - **Um evento nao entregue nao e reenviado** depois que as tentativas se esgotam (veja as
+      [garantias de entrega](index.md)). O estado local pode divergir sem aviso — reconcilie
+      periodicamente pela API.
 
 ---
 
