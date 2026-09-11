@@ -28,9 +28,13 @@ Esta pagina descreve o que o seu consumidor recebe e como interpretar cada campo
 
 ## Quando este evento e disparado
 
-O evento e enviado sempre que um dos campos padrao da requisicao tem seu valor alterado. Isso
-inclui alteracoes feitas por um usuario na interface, por uma integracao via API ou por rotinas
-automaticas do proprio BDesk (por exemplo, a marcacao de uma requisicao como fora do SLA).
+O evento e enviado sempre que um dos campos padrao da requisicao tem seu valor alterado por um
+usuario identificado — seja pela interface do BDesk, seja por uma integracao via API autenticada.
+
+!!! note "Alteracoes sem usuario identificado"
+    Alteracoes feitas por rotinas internas do BDesk, sem um usuario associado, **nao geram evento
+    de Dado Basico**. Se o seu fluxo depende de acompanhar esse tipo de mudanca, complemente a
+    integracao com consultas periodicas a API.
 
 Cada campo alterado gera **um evento independente**. Se um usuario altera a prioridade e o grupo
 na mesma operacao, o seu sistema recebe dois eventos distintos.
@@ -54,7 +58,7 @@ Alem do envelope comum, o bloco `data.execution` traz quem executou a alteracao 
 | Campo | Tipo | Descricao |
 |-------|------|-----------|
 | `id` | inteiro | Identificador do usuario que realizou a alteracao |
-| `name` | texto | Nome do usuario. Alteracoes feitas automaticamente pelo sistema chegam identificadas como acao do sistema |
+| `name` | texto | Nome do usuario que realizou a alteracao |
 
 ### `data.execution.change`
 
@@ -95,26 +99,30 @@ Os 21 campos abaixo geram evento quando alterados.
 | `field_name` | `field_description` | Conteudo do valor |
 |--------------|---------------------|-------------------|
 | `dsTitulo` | Assunto | Texto livre |
-| `dsReq` | Descricao | Texto livre |
-| `nPrioridade` | Prioridade | `"Alta"`, `"Media"` ou `"Baixa"` |
+| `dsReq` | Descrição | Texto livre |
+| `nPrioridade` | Prioridade | `"Alta"`, `"Média"` ou `"Baixa"` |
 | `idFrmStatus` | Status | Nome do status |
-| `idAre` | Area | Nome da area |
+| `idAre` | Área | Nome da area |
 | `idTar` | Tarefa | Nome completo da tarefa |
 | `dtAbertura` | Dt. Abertura | Data e hora |
-| `dtIniPrev` | Dt. Inicio Prevista | Data e hora |
+| `dtIniPrev` | Dt. Início Prevista | Data e hora |
 | `dtFimPrev` | Dt. Fim Prevista | Data e hora |
-| `dtIniReal` | Dt. Inicio Real | Data e hora |
+| `dtIniReal` | Dt. Início Real | Data e hora |
 | `dtFimReal` | Dt. Fim Real | Data e hora |
 | `sla` | SLA | Duracao formatada |
 | `idGru` | Grupo | Nome do grupo |
 | `idGruAtual` | Grupo Atual | Nome do grupo |
 | `idFrmOrigem` | Origem | Nome da origem |
-| `idLoc` | Id da Localizacao | Nome da localizacao |
-| `dsLoc` | Localizacao | Texto livre |
-| `idPat` | Patrimonio | Descricao do patrimonio |
+| `idLoc` | Id da Localização | Nome da localizacao |
+| `dsLoc` | Localização | Texto livre |
+| `idPat` | Patrimônio | Descricao do patrimonio |
 | `idHie` | Hierarquia | Nome completo da hierarquia |
 | `idEmp` | Empresa | Razao social |
-| `flgForaSla` | Fora do SLA | `"Sim"` ou `"Nao"` |
+| `flgForaSla` | Fora do SLA | `"Sim"` ou `"Não"` |
+
+!!! note "Os valores desta tabela sao literais"
+    Os textos das colunas `field_description` e de conteudo chegam **acentuados** no payload
+    (por exemplo, `"Área"`, `"Média"`, `"Não"`). Compare sempre com os valores exatos acima.
 
 !!! note "Formato das datas"
     Os campos iniciados por `dt` chegam no formato `AAAA-MM-DD HH:MM:SS`, sem fuso horario.
@@ -147,7 +155,7 @@ Os 21 campos abaixo geram evento quando alterados.
       "change": {
         "field_name": "nPrioridade",
         "field_description": "Prioridade",
-        "old_value": "Media",
+        "old_value": "Média",
         "new_value": "Alta"
       }
     },

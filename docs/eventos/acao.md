@@ -123,7 +123,7 @@ Alem dessas, existe a variacao de anexo, descrita mais adiante:
 
     Seu consumidor **nunca deve falhar** ao encontrar um `event_type` que nao reconhece.
     Use um `switch`/`match` com um ramo padrao que apenas registra o evento em log (ou o
-    ignora silenciosamente) e responde `2xx`. Rejeitar o evento com erro so faz com que ele
+    ignora silenciosamente) e responde `200`. Rejeitar o evento com erro so faz com que ele
     seja reentregue indefinidamente.
 
 !!! tip "Quer saber exatamente qual acao foi?"
@@ -225,7 +225,9 @@ campo adicional `document`:
 
 | Campo | Tipo | Descricao |
 |---|---|---|
-| `execution.document.id` | inteiro | Identificador do anexo. Use este valor para referenciar o arquivo. |
+| `execution.document.id` | string | Identificador do anexo. Use este valor para referenciar o arquivo. |
+| `execution.document.title` | string | Nome fisico do arquivo, com extensao. |
+| `execution.document.name` | string | Titulo do documento, como exibido na requisicao. |
 | `execution.document.url` | string | Endereco de visualizacao do anexo no portal. |
 
 !!! warning "Nao baixe o arquivo pela `url` do evento"
@@ -264,14 +266,16 @@ campo adicional `document`:
       "status": "Em Atendimento"
     },
     "execution": {
-      "description": "Segue laudo tecnico do equipamento.",
+      "description": "O documento laudo-tecnico.pdf foi anexado a requisicao.",
       "executor": {
         "id": 1803,
         "name": "Joao Silva"
       },
       "document": {
         "id": "56789",
-        "url": "https://sua-empresa.bdesk.com.br/Requisicao/Documento/56789"
+        "title": "laudo-tecnico.pdf",
+        "name": "Laudo tecnico do equipamento",
+        "url": "https://sua-empresa.bdesk.com.br/requisicoes/Download?idDoc=56789&contexto=184527"
       }
     },
     "customer_context": {

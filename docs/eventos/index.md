@@ -166,7 +166,14 @@ O mesmo evento **pode chegar mais de uma vez**. Isso e esperado e nao indica fal
 
 - **Sucesso:** resposta **HTTP 200**.
 - **Falha:** qualquer outro codigo de resposta (301, 400, 401, 403, 404, 500, 502...),
-  timeout ou erro de conexao. Toda falha agenda uma nova tentativa, respeitando o limite de 3.
+
+
+!!! warning "Responda 200, e nao 204"
+    E comum que um endpoint que apenas enfileira o evento responda `204 No Content`. Responda
+    sempre **`200`**, com ou sem corpo — e o unico codigo garantidamente interpretado como
+    entrega bem-sucedida. Evite tambem responder com redirecionamento (`301`/`302`): alem de
+    nao ser tratado como confirmacao explicita, encaminhar a requisicao para outro endereco
+    repassa o cabecalho de autenticacao a um destino que voce pode nao controlar.  timeout ou erro de conexao. Toda falha agenda uma nova tentativa, respeitando o limite de 3.
 
 !!! warning "Responda 200 somente apos aceitar o evento"
     Se voce responder 200 e depois perder a mensagem internamente, o BDesk considera a entrega

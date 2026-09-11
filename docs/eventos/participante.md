@@ -36,7 +36,7 @@ mais comuns sao:
 - A requisicao e redirecionada para outro grupo ou pessoa
 - Um responsavel e definido ou substituido (papel **RESP**)
 - Alguem e incluido em copia para acompanhar o andamento (papel **COP**)
-- Um administrador do processo e vinculado a requisicao (papel **ADP**)
+- Um administrador do processo e vinculado a requisicao (papel **ADMPRO**)
 
 O `event_type` deste evento e **sempre** `ticket.participant.changed`, independentemente de qual
 dos casos acima ocorreu.
@@ -94,10 +94,12 @@ A tabela abaixo lista os papeis mais comuns e seu significado:
 | `ADO` | Solicitado | Quem atende a requisicao |
 | `RESP` | Responsavel | Responsavel pela requisicao |
 | `COP` | Copiado | Acompanha a requisicao, sem atuar nela |
-| `ADM` | Administrador | Administrador da requisicao |
-| `ADP` | Administrador do Processo | Administra o fluxo da requisicao |
+| `BEN` | Beneficiario | Quem se beneficia do atendimento |
+| `ADOP` | Solicitado Anterior | Quem atendeu a requisicao anteriormente |
+| `ADMPRO` | Administrador do Processo | Administra o fluxo da requisicao |
+| `ADMFRM` | Administrador do Formulario | Administra o formulario da requisicao |
 | `SYS` | Sistema | Participacao gerada automaticamente pelo proprio sistema |
-| `EMA` | E-mail | Participante que interage por e-mail |
+| `EMAIL` | E-mail | Participante que interage por e-mail |
 
 !!! note "Outros codigos podem existir"
     A lista acima cobre os papeis padrao, mas **outros codigos podem aparecer** conforme a
