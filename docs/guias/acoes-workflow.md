@@ -21,12 +21,17 @@ Antes de comecar, voce precisa ter:
 ## Conceito: Acoes e Codigos
 
 Cada requisicao possui um conjunto de acoes disponivel que varia conforme o estado atual da requisicao
-e as permissoes do usuario autenticado. Nao e possivel executar uma acao que o sistema nao libera —
-tentativas resultam em erro HTTP 406.
+e as permissoes do usuario autenticado. Nao e possivel executar uma acao que o sistema nao libera.
+
+**Atencao a como os erros chegam:** na maioria das falhas ao executar uma acao a API responde
+**HTTP 200**, e a mensagem de erro vem em `_metadata.MensagensErro`. Nao basta checar o status HTTP:
+leia sempre `MensagensErro` depois de executar uma acao (veja "Erros Comuns").
 
 As acoes sao identificadas pelo formato `"Nome [CODIGO]"`. Por exemplo: `"Encerrar [ENC]"`,
 `"Direcionar [DIR]"`. Esse identificador composto e retornado ao listar as acoes e deve ser enviado
-exatamente como recebido no campo `Id` ao executar a acao.
+exatamente como recebido no campo `Id` ao executar a acao. O codigo entre colchetes e obrigatorio:
+`"Encerrar [ENC]"` e `"[ENC]"` funcionam, mas `"ENC"` sozinho nao e reconhecido (a API responde 200
+com a mensagem "Ação não encontrada").
 
 ### Codigos de Acao
 
@@ -66,20 +71,23 @@ curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/35174/acoes" \
 
 ```json
 {
-  "_metadata": {
-    "Release": "9.8.0",
-    "MensagensErro": [],
-    "LogAmigavel": []
-  },
+  "_metadata": {},
   "records": [
     {
       "Nome": "Encerrar",
       "Id": "Encerrar [ENC]",
+      "CodigoAcao": "ENC",
       "Campos": [
         {
           "Nome": "Descricao",
           "Chave": "Descricao",
           "TipoDeDado": "Text",
+          "Obrigatoriedade": true
+        },
+        {
+          "Nome": "Avaliacao",
+          "Chave": "tipoAvaliacao",
+          "TipoDeDado": "Integer",
           "Obrigatoriedade": true
         }
       ]
@@ -87,11 +95,12 @@ curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/35174/acoes" \
     {
       "Nome": "Direcionar",
       "Id": "Direcionar [DIR]",
+      "CodigoAcao": "DIR",
       "Campos": [
         {
-          "Nome": "Grupo",
-          "Chave": "GrupoId",
-          "TipoDeDado": "Numeric",
+          "Nome": "Novo solicitado",
+          "Chave": "NovoSolicitado",
+          "TipoDeDado": "Integer",
           "Obrigatoriedade": true
         },
         {
@@ -106,23 +115,28 @@ curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/35174/acoes" \
 }
 ```
 
+Cada item traz ainda outros membros, como `FormularioId`, `FormularioAcaoId` e `Icone`. Se o usuario
+nao tem nenhuma acao disponivel naquele status, a resposta e 200 com `"records": []`.
+
 **Campos da resposta:**
 
 | Campo | Descricao |
 |-------|-----------|
 | `Nome` | Nome legivel da acao |
 | `Id` | Identificador no formato `"Nome [CODIGO]"` — use este valor exato ao executar |
+| `CodigoAcao` | Codigo da acao (ex.: `ENC`) |
 | `Campos` | Lista de campos esperados no payload de execucao |
+| `Campos[].Chave` | Nome do campo a ser usado no corpo da execucao |
 | `Campos[].Obrigatoriedade` | `true` = campo obrigatorio para esta acao |
 
 Use o valor do campo `Id` exatamente como retornado — incluindo o codigo entre colchetes.
 
 ---
 
-### Passo 2: (Opcional) Consulte os grupos disponiveis para direcionamento
+### Passo 2: (Opcional) Consulte os destinos disponiveis para direcionamento
 
-Se voce precisar direcionar a requisicao (`DIR`), consulte quais grupos estao disponiveis antes de
-montar o payload. O campo `GrupoId` deve conter um ID valido retornado por este endpoint.
+Se voce precisar direcionar a requisicao (`DIR`), consulte quais grupos e usuarios podem receber
+a requisicao antes de montar o payload. O valor de destino deve ser um `Id` retornado por este endpoint.
 
 **Endpoint:** `GET /v1/requisicoes/{id}/acoes/DIR/grupos`
 
@@ -135,19 +149,17 @@ curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/35174/acoes/DIR
 
 ```json
 {
-  "_metadata": {
-    "Release": "9.8.0",
-    "MensagensErro": []
-  },
+  "_metadata": {},
   "records": [
-    { "Id": 5, "Nome": "Infraestrutura" },
-    { "Id": 12, "Nome": "Suporte N2" },
-    { "Id": 18, "Nome": "Seguranca da Informacao" }
+    { "Id": "{ IdParticipante : 5, IdTipoPapel : 2 } ", "Texto": "Infraestrutura" },
+    { "Id": "{ IdParticipante : 12, IdTipoPapel : 2 } ", "Texto": "Suporte N2" },
+    { "Id": "{ IdParticipante : 18, IdTipoPapel : 2 } ", "Texto": "Seguranca da Informacao" }
   ]
 }
 ```
 
-Use o campo `Id` do grupo desejado como valor de `GrupoId` no payload de execucao.
+O `Id` de cada item e um **texto pronto**, que deve ser copiado exatamente como veio (inclusive o
+espaco final) para o campo `NovoSolicitado` do payload de execucao. `Texto` e o nome para exibicao.
 
 ---
 
@@ -166,29 +178,40 @@ O campo `Id` deve ser o valor exato retornado na listagem do Passo 1.
 |-------|------|-------------|-----------|
 | `Id` | string | Sim | Identificador da acao no formato `"Nome [CODIGO]"` |
 | `Descricao` | string | Depende | Comentario ou motivo da acao (obrigatorio conforme a acao) |
-| `GrupoId` | inteiro | Para `DIR` | ID do grupo de destino |
-| `NovoSolicitado` | string | Para `DIR` | ID do analista de destino (alternativo ao `GrupoId`) |
-| `prioridade` | inteiro | Para `ALTPRI` | Novo nivel de prioridade |
-| `Motivo` | inteiro | Para `ENC` | ID do motivo de encerramento (quando exigido) |
+| `NovoSolicitado` | string | Para `DIR` | O `Id` do destino, copiado de `GET /v1/requisicoes/{id}/acoes/DIR/grupos` |
+| `prioridade` | inteiro | Para `ALTPRI` | Nova prioridade: 1 = Alta, 2 = Media, 3 = Baixa |
+| `tipoAvaliacao` | inteiro | Para `ENC` e `AVAL` | Avaliacao: 1 = acima do esperado, 2 = conforme o esperado, 3 = abaixo do esperado |
+| `usuResponsavelId` | inteiro | Para `ATR` e `ATRR` | ID do usuario que assumira a requisicao |
+| `Motivo` | inteiro | Quando a acao tem motivos | ID do motivo (quando exigido pela acao) |
 | `IdRequisicaoAVincular` | inteiro | Para `VINC` | ID da requisicao a ser vinculada |
 | `AssuntoRequisicao` | string | Para `ALTDES` | Novo titulo da requisicao |
 | `DescricaoRequisicao` | string | Para `ALTDES` | Nova descricao da requisicao |
 | `AtividadeId` | inteiro | Para `RECAT` | ID da nova atividade/categorizacao |
 
-**Resposta de sucesso (HTTP 200):**
+Os campos exigidos variam por acao e por formulario: a lista `Campos` retornada por
+`GET /v1/requisicoes/{id}/acoes` (Passo 1) e a fonte confiavel. Para anexar um arquivo **nao** use
+esta rota: veja o guia [Anexos](anexos.md).
+
+**Resposta (HTTP 200):**
 
 ```json
 {
   "_metadata": {
     "Release": "9.8.0",
-    "MensagensErro": [],
-    "LogAmigavel": []
+    "LogAmigavel": [],
+    "MensagensErro": []
   },
-  "records": []
+  "records": null
 }
 ```
 
-Uma resposta com `MensagensErro` vazia indica que a acao foi executada com sucesso.
+`MensagensErro` vazia indica que a acao foi executada com sucesso. Quando a acao devolve uma
+mensagem de texto, a resposta pode ser, em vez do envelope acima, esse texto como um JSON simples
+(por exemplo `"Requisicao encerrada"`). Seu codigo deve tratar as duas formas.
+
+**Erros chegam com HTTP 200:** se alguma validacao falhar (acao nao encontrada, usuario sem
+permissao nesse status, campo obrigatorio ausente), o status continua 200 e a mensagem aparece em
+`_metadata.MensagensErro`. Sempre verifique essa lista.
 
 ---
 
@@ -199,7 +222,8 @@ Uma resposta com `MensagensErro` vazia indica que a acao foi executada com suces
 ```json
 {
   "Id": "Encerrar [ENC]",
-  "Descricao": "Problema resolvido. Acesso ao sistema liberado para o usuario."
+  "Descricao": "Problema resolvido. Acesso ao sistema liberado para o usuario.",
+  "tipoAvaliacao": 2
 }
 ```
 
@@ -208,7 +232,7 @@ Uma resposta com `MensagensErro` vazia indica que a acao foi executada com suces
 ```json
 {
   "Id": "Direcionar [DIR]",
-  "GrupoId": 5,
+  "NovoSolicitado": "{ IdParticipante : 5, IdTipoPapel : 2 } ",
   "Descricao": "Encaminhando para a equipe de Infraestrutura para analise de rede."
 }
 ```
@@ -228,7 +252,7 @@ Uma resposta com `MensagensErro` vazia indica que a acao foi executada com suces
 ```json
 {
   "Id": "Atribuir [ATR]",
-  "NovoSolicitado": "45",
+  "usuResponsavelId": 45,
   "Descricao": "Atribuindo ao analista responsavel pela conta."
 }
 ```
@@ -263,16 +287,17 @@ curl -s -X POST "$BASE_URL/v1/requisicoes/$REQ_ID/acoes" \
   -H "Content-Type: application/json" \
   -d '{
     "Id": "Encerrar [ENC]",
-    "Descricao": "Problema resolvido. Acesso ao sistema liberado para o usuario."
+    "Descricao": "Problema resolvido. Acesso ao sistema liberado para o usuario.",
+    "tipoAvaliacao": 2
   }'
 
-# Direcionar para outro grupo
+# Direcionar para outro grupo (NovoSolicitado = Id obtido em acoes/DIR/grupos)
 curl -s -X POST "$BASE_URL/v1/requisicoes/$REQ_ID/acoes" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "Id": "Direcionar [DIR]",
-    "GrupoId": 5,
+    "NovoSolicitado": "{ IdParticipante : 5, IdTipoPapel : 2 } ",
     "Descricao": "Encaminhando para a equipe de Infraestrutura."
   }'
 ```
@@ -302,7 +327,8 @@ for acao in acoes:
 # Encerrar a requisicao
 payload_encerrar = {
     "Id": "Encerrar [ENC]",
-    "Descricao": "Problema resolvido. Acesso ao sistema liberado para o usuario."
+    "Descricao": "Problema resolvido. Acesso ao sistema liberado para o usuario.",
+    "tipoAvaliacao": 2
 }
 resp = requests.post(
     f"{BASE_URL}/v1/requisicoes/{req_id}/acoes",
@@ -310,7 +336,10 @@ resp = requests.post(
     headers=headers
 )
 resp.raise_for_status()
-erros = resp.json()["_metadata"]["MensagensErro"]
+corpo = resp.json()
+# Erros de negocio chegam com HTTP 200, em _metadata.MensagensErro.
+# Algumas acoes respondem com um texto simples em vez do envelope.
+erros = corpo["_metadata"]["MensagensErro"] if isinstance(corpo, dict) else []
 if not erros:
     print("Acao executada com sucesso.")
 else:
@@ -325,13 +354,13 @@ resp.raise_for_status()
 grupos = resp.json()["records"]
 print("Grupos disponiveis:")
 for grupo in grupos:
-    print(f"  [{grupo['Id']}] {grupo['Nome']}")
+    print(f"  {grupo['Texto']} -> {grupo['Id']}")
 
-# Direcionar para o primeiro grupo disponivel
+# Direcionar para o primeiro destino disponivel
 if grupos:
     payload_dir = {
         "Id": "Direcionar [DIR]",
-        "GrupoId": grupos[0]["Id"],
+        "NovoSolicitado": grupos[0]["Id"],  # copie o valor exatamente como veio
         "Descricao": "Encaminhando para a equipe responsavel."
     }
     resp = requests.post(
@@ -340,7 +369,12 @@ if grupos:
         headers=headers
     )
     resp.raise_for_status()
-    print("Direcionamento realizado com sucesso.")
+    corpo = resp.json()
+    erros = corpo["_metadata"]["MensagensErro"] if isinstance(corpo, dict) else []
+    if erros:
+        print(f"Direcionamento falhou: {erros}")
+    else:
+        print("Direcionamento realizado com sucesso.")
 ```
 
 ---
@@ -364,8 +398,9 @@ foreach ($acao in $resp.records) {
 
 # Encerrar a requisicao
 $payloadEncerrar = @{
-    Id        = "Encerrar [ENC]"
-    Descricao = "Problema resolvido. Acesso ao sistema liberado para o usuario."
+    Id            = "Encerrar [ENC]"
+    Descricao     = "Problema resolvido. Acesso ao sistema liberado para o usuario."
+    tipoAvaliacao = 2
 } | ConvertTo-Json
 
 $resp = Invoke-RestMethod `
@@ -375,7 +410,9 @@ $resp = Invoke-RestMethod `
     -Body $payloadEncerrar `
     -ContentType "application/json"
 
-if ($resp._metadata.MensagensErro.Count -eq 0) {
+# Erros de negocio chegam com HTTP 200, em _metadata.MensagensErro.
+# Algumas acoes respondem com um texto simples em vez do envelope.
+if ($resp -is [string] -or $resp._metadata.MensagensErro.Count -eq 0) {
     Write-Host "Acao executada com sucesso."
 } else {
     Write-Host "Erros: $($resp._metadata.MensagensErro -join ', ')"
@@ -388,25 +425,29 @@ $grupos = Invoke-RestMethod `
 
 Write-Host "Grupos disponiveis:"
 foreach ($grupo in $grupos.records) {
-    Write-Host "  [$($grupo.Id)] $($grupo.Nome)"
+    Write-Host "  $($grupo.Texto) -> $($grupo.Id)"
 }
 
-# Direcionar para o primeiro grupo
+# Direcionar para o primeiro destino (NovoSolicitado = Id exatamente como veio)
 if ($grupos.records.Count -gt 0) {
     $payloadDir = @{
-        Id        = "Direcionar [DIR]"
-        GrupoId   = $grupos.records[0].Id
-        Descricao = "Encaminhando para a equipe responsavel."
+        Id             = "Direcionar [DIR]"
+        NovoSolicitado = $grupos.records[0].Id
+        Descricao      = "Encaminhando para a equipe responsavel."
     } | ConvertTo-Json
 
-    Invoke-RestMethod `
+    $resp = Invoke-RestMethod `
         -Uri "$BaseUrl/v1/requisicoes/$ReqId/acoes" `
         -Method Post `
         -Headers $headers `
         -Body $payloadDir `
-        -ContentType "application/json" | Out-Null
+        -ContentType "application/json"
 
-    Write-Host "Direcionamento realizado com sucesso."
+    if ($resp -is [string] -or $resp._metadata.MensagensErro.Count -eq 0) {
+        Write-Host "Direcionamento realizado com sucesso."
+    } else {
+        Write-Host "Direcionamento falhou: $($resp._metadata.MensagensErro -join ', ')"
+    }
 }
 ```
 
@@ -414,14 +455,20 @@ if ($grupos.records.Count -gt 0) {
 
 ## Erros Comuns
 
+Quase todos os erros ao executar uma acao voltam como **HTTP 200** com a mensagem em
+`_metadata.MensagensErro`. A unica excecao e a falta de acesso a requisicao, que volta como
+HTTP 406 com a mensagem em texto puro.
+
 | Sintoma | Causa provavel | Solucao |
 |---------|----------------|---------|
-| HTTP 406 — "Acao nao disponivel" | A acao nao esta liberada para o usuario neste estado da requisicao | Consulte primeiro `GET /v1/requisicoes/{id}/acoes` e use apenas acoes listadas |
-| HTTP 406 — "Descricao obrigatoria" | O campo `Descricao` e obrigatorio para a acao escolhida e nao foi enviado | Inclua o campo `Descricao` no payload com um texto explicativo |
-| HTTP 406 — "Grupo invalido" | O `GrupoId` informado nao existe ou nao esta disponivel para esta requisicao | Consulte `GET /v1/requisicoes/{id}/acoes/DIR/grupos` para obter IDs validos |
-| HTTP 406 — com lista de erros em `MensagensErro` | Erro de validacao de negocio (campo faltando, valor invalido, etc.) | Leia cada mensagem em `_metadata.MensagensErro` — elas descrevem o problema exato |
-| HTTP 401 — Unauthorized | Token expirado ou ausente no cabecalho | Faca login novamente e obtenha um novo token — veja [Autenticacao](../autenticacao.md) |
-| Campo `Id` da acao nao reconhecido | O identificador foi digitado manualmente em vez de copiado da listagem | Use o valor exato retornado pelo `GET /acoes`, incluindo espacos e colchetes |
+| HTTP 200 com `MensagensErro` contendo "Ação não encontrada" | O `Id` nao tem o codigo entre colchetes (ex.: `"ENC"`) ou nao existe para este formulario | Use o valor exato retornado por `GET /v1/requisicoes/{id}/acoes` (ex.: `"Encerrar [ENC]"`) |
+| HTTP 200 com `MensagensErro` sobre permissao | A acao nao esta liberada para o usuario neste estado da requisicao | Consulte primeiro `GET /v1/requisicoes/{id}/acoes` e use apenas acoes listadas |
+| HTTP 200 com `MensagensErro` pedindo o `Id` | O campo `Id` nao foi enviado ou veio vazio | Envie `Id` no payload |
+| HTTP 200 com `MensagensErro` sobre campo obrigatorio | Falta `Descricao`, `tipoAvaliacao`, `NovoSolicitado` ou outro campo exigido pela acao | Veja `Campos` em `GET /v1/requisicoes/{id}/acoes` e envie os campos com `Obrigatoriedade: true` |
+| HTTP 200 com `MensagensErro` sobre data | O campo `Data` nao e uma data valida | Envie a data em formato ISO (ex.: `2026-03-15T10:00:00`) |
+| HTTP 406 em texto puro | Requisicao inexistente ou usuario sem acesso, ou corpo ausente | Confirme o ID da requisicao e envie o corpo JSON |
+| HTTP 401 — Unauthorized | Token ausente, invalido ou usuario desativado | Faca login novamente e obtenha um novo token — veja [Autenticacao](../autenticacao.md) |
+| `NovoSolicitado` nao aceito no `DIR` | O valor foi montado manualmente em vez de copiado da listagem | Copie o `Id` de `GET /v1/requisicoes/{id}/acoes/DIR/grupos` sem alteracoes |
 
 ---
 

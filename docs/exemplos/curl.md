@@ -4,6 +4,8 @@ Scripts completos e prontos para execução em shell (bash/zsh). Copie, ajuste a
 
 > **Pré-requisitos:** `curl` e `python3` instalados. Não é necessário `jq`.
 
+> **Lembrete sobre erros:** a API sinaliza falhas de duas formas: HTTP 406 com a mensagem em **texto puro**, ou HTTP 200 com a mensagem em `MensagensErro`. Os scripts abaixo tratam os dois casos. Veja [Tratamento de Erros](../referencia/erros.md).
+
 ---
 
 ## Configuração
@@ -21,7 +23,7 @@ SENHA="sua-senha"
 
 ## 1. Login e Obter Token
 
-O endpoint de login retorna o token dentro do campo `Dados`, que é uma **string JSON escapada** — não um objeto direto. É necessário fazer dois níveis de parse para extrair o `access_token`.
+O endpoint de login retorna o token dentro do campo `Dados`, que é uma **string JSON escapada** — não um objeto direto. É necessário fazer dois níveis de parse para extrair o `access_token`. O login responde **HTTP 200 mesmo quando falha**: confira `Dados` e `MensagensErro`.
 
 ```bash
 #!/usr/bin/env bash
@@ -35,12 +37,13 @@ RESPOSTA=$(curl -s -X POST "$BASE_URL/v1/login/entrar" \
   -H "Content-Type: application/json" \
   -d "{\"Login\": \"$LOGIN\", \"Senha\": \"$SENHA\"}")
 
-# Dados e uma string JSON escapada — requer dois levels de parse
+# O login responde HTTP 200 mesmo em falha: confira Dados e MensagensErro.
+# Dados e uma string JSON escapada — requer dois niveis de parse
 TOKEN=$(echo "$RESPOSTA" | python3 -c "
 import sys, json
 resp = json.load(sys.stdin)
-if resp.get('MensagensErro'):
-    print('ERRO:', resp['MensagensErro'], file=sys.stderr)
+if resp.get('Dados') is None or resp.get('MensagensErro'):
+    print('ERRO:', resp.get('MensagensErro'), file=sys.stderr)
     sys.exit(1)
 dados = json.loads(resp['Dados'])
 print(dados['access_token'])
@@ -59,44 +62,46 @@ echo "Use: -H \"Authorization: Bearer $TOKEN\""
 
 ```json
 {
-  "Dados": "{\"token_type\":\"Bearer\",\"access_token\":\"eyJhbGci...\",\"expires_in\":3600}",
+  "Dados": "{\"access_token\":\"eyJhbGci...\",\"token_type\":\"bearer\",\"expires_in\":\"1799999999\",\"refresh_token\":null,\"scope\":\"admin\",\"error\":null}",
   "LogAmigavel": [],
   "MensagensErro": [],
-  "Versao": "9.8.0"
+  "Versao": null
 }
 ```
 
-> **Atenção:** `Dados` e uma string (não um objeto). Execute `JSON.parse(resp.Dados)` para extrair o token. Erros de autenticacao retornam HTTP 406 com `MensagensErro` preenchido.
+> **Atenção:** `Dados` é uma string (não um objeto). Execute `JSON.parse(resp.Dados)` para extrair o token. Erros de autenticação **também retornam HTTP 200**: nesse caso `Dados` vem `null` e `MensagensErro` vem preenchido. O token não expira por tempo no servidor (`expires_in` é apenas informativo); HTTP 401 em uma chamada posterior indica token inválido ou usuário desativado.
 
 ---
 
 ## 2. Listar Requisicoes Abertas
 
-Lista as requisicoes abertas do usuario autenticado com suporte a paginacao.
+Lista as requisições abertas do usuário autenticado. A API **não pagina**: a resposta traz as requisições até o limite `LimiteRequisicoes` (padrão 500). Use filtros para reduzir o volume (veja [Paginação e Limites](../referencia/paginacao.md)).
 
 ```bash
 #!/usr/bin/env bash
-# listar-abertas.sh — Lista requisicoes abertas com paginacao
+# listar-abertas.sh — Lista requisicoes abertas com limite explicito
 
 BASE_URL="https://sua-empresa.bdesk.com.br/askrest"
 TOKEN="SEU_TOKEN_AQUI"
 
-PAGE_SIZE=20
-PAGE_NUMBER=1
+LIMITE=20
 
 curl -s -X GET \
-  "$BASE_URL/v1/requisicoes/abertas?pageSize=$PAGE_SIZE&pageNumber=$PAGE_NUMBER" \
+  "$BASE_URL/v1/requisicoes/abertas?LimiteRequisicoes=$LIMITE" \
   -H "Authorization: Bearer $TOKEN" \
   | python3 -c "
 import sys, json
 resp = json.load(sys.stdin)
-meta = resp.get('_metadata', {})
-paginacao = meta.get('Pagination', {})
 
-print(f\"Total: {paginacao.get('TotalRecords', '?')} requisicoes\")
-print(f\"Pagina {paginacao.get('CurrentPage', '?')} de {paginacao.get('TotalPages', '?')}\")
+erros = resp.get('_metadata', {}).get('MensagensErro')
+if erros:
+    print('Erro:', erros)
+    sys.exit(1)
+
+registros = resp.get('records', [])
+print(f'{len(registros)} requisicoes (limite: $LIMITE)')
 print()
-for req in resp.get('records', []):
+for req in registros:
     print(f\"#{req['RequisicaoId']} - {req['Assunto']}\")
     print(f\"  Status: {req['Status']} | Responsavel: {req.get('Responsavel', '-')}\")
     print(f\"  Abertura: {req['DataAbertura'][:10]}\")
@@ -109,15 +114,8 @@ for req in resp.get('records', []):
 ```json
 {
   "_metadata": {
-    "Release": "9.8.0",
-    "LogAmigavel": [],
     "MensagensErro": [],
-    "Pagination": {
-      "TotalRecords": 42,
-      "TotalPages": 3,
-      "CurrentPage": 1,
-      "PageSize": 20
-    }
+    "LogAmigavel": []
   },
   "records": [
     {
@@ -131,13 +129,13 @@ for req in resp.get('records', []):
 }
 ```
 
-> **Nota:** O campo e `RequisicaoId` (nao `Id`). Paginacao: `pageSize` (padrao 20, maximo 100), `pageNumber` (base 1).
+> **Nota:** O campo é `RequisicaoId` (não `Id`). Para filtros mais ricos (status, período de abertura, dados adicionais), use `POST /v1/requisicoes/abertas` com os filtros no corpo JSON.
 
 ---
 
 ## 3. Buscar Requisicao por ID
 
-Retorna os detalhes completos de uma requisicao especifica. A resposta usa `Conjuntos` como dicionario (diferente do catalogo, onde e um array).
+Retorna os detalhes completos de uma requisição específica. A resposta usa `Conjuntos` como dicionário (diferente do catálogo, onde é um array). Se a requisição não existir ou o usuário não tiver acesso, a resposta é **HTTP 200** com `Conjuntos` nulo e a mensagem em `MensagensErro`.
 
 ```bash
 #!/usr/bin/env bash
@@ -154,11 +152,12 @@ curl -s -X GET \
 import sys, json
 resp = json.load(sys.stdin)
 
-if resp.get('MensagensErro'):
-    print('Erro:', resp['MensagensErro'])
+# Requisicao inexistente ou sem acesso: HTTP 200, Conjuntos nulo e MensagensErro preenchido
+if resp.get('MensagensErro') or resp.get('Conjuntos') is None:
+    print('Erro:', resp.get('MensagensErro'))
     sys.exit(1)
 
-conjuntos = resp.get('Conjuntos', {})
+conjuntos = resp['Conjuntos']
 
 # Detalhes basicos
 if 'Detalhes Do Pedido' in conjuntos:
@@ -207,7 +206,7 @@ for chave in ['UrlAcoes', 'UrlHistorico', 'UrlDadosAdicionais']:
 
 ## 4. Criar Requisicao
 
-Abre uma nova requisicao. O campo `Formulario` recebe o ID do formulario (obtido via `GET /v1/cardapio`). Os dados sao organizados em `Conjuntos` — um dicionario onde cada chave e a `Chave` do conjunto no formulario.
+Abre uma nova requisição. O campo `Formulario` recebe o ID do formulário (obtido via `GET /v1/cardapio`). Os dados são organizados em `Conjuntos` — um dicionário onde cada chave é a `Chave` do conjunto no formulário. Assunto e descrição ficam no conjunto `DadosBasicos`.
 
 ```bash
 #!/usr/bin/env bash
@@ -215,9 +214,6 @@ Abre uma nova requisicao. O campo `Formulario` recebe o ID do formulario (obtido
 
 BASE_URL="https://sua-empresa.bdesk.com.br/askrest"
 TOKEN="SEU_TOKEN_AQUI"
-
-# ID do formulario (obtido via GET /v1/cardapio)
-FORMULARIO_ID=101
 
 PAYLOAD=$(cat <<'ENDJSON'
 {
@@ -232,25 +228,26 @@ PAYLOAD=$(cat <<'ENDJSON'
 ENDJSON
 )
 
-RESPOSTA=$(curl -s -X POST "$BASE_URL/v1/requisicoes/abrir" \
+RESPOSTA=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/v1/requisicoes/abrir" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD")
 
-echo "Resposta: $RESPOSTA"
+HTTP_CODE=$(echo "$RESPOSTA" | tail -1)
+CORPO=$(echo "$RESPOSTA" | sed '$d')
 
-# A resposta e apenas o ID como string (ex: "12345")
-REQUISICAO_ID=$(echo "$RESPOSTA" | python3 -c "
-import sys, json
-val = json.load(sys.stdin)
-# /abrir retorna string simples com o ID
-print(val)
-")
+# Erro de negocio: HTTP 406 com a mensagem em texto puro (nao e JSON)
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "Erro (HTTP $HTTP_CODE): $CORPO"
+  exit 1
+fi
 
+# A resposta de sucesso e apenas o numero da requisicao, como texto JSON (ex: "12345")
+REQUISICAO_ID=$(echo "$CORPO" | tr -d '"')
 echo "Requisicao criada com ID: $REQUISICAO_ID"
 ```
 
-> **Dica:** Use `POST /v1/requisicoes/abrirRequisicao` para obter um envelope completo com `IdRequisicaoAberta` e `_metadata`. O endpoint `/abrir` retorna apenas o ID como string simples.
+> **Dica:** Use `POST /v1/requisicoes/abrirRequisicao` (mesmo corpo) para receber o número dentro do envelope padrão, em `records[0].IdRequisicaoAberta`. O endpoint `/abrir` retorna apenas o número como texto.
 
 **Exemplo de corpo com campos adicionais:**
 
@@ -277,7 +274,9 @@ ENDJSON
 
 ## 5. Executar Acao (Encerrar)
 
-Executa uma acao de workflow em uma requisicao existente. O campo `Id` usa o formato `"Nome [CODIGO]"`.
+Executa uma ação de workflow em uma requisição existente. O campo `Id` deve ser **exatamente** o valor devolvido por `GET /v1/requisicoes/{id}/acoes`, que traz o código entre colchetes (por exemplo, `Encerrar [ENC]`). Enviar apenas `ENC` não funciona: a API responde 200 com a mensagem "Ação não encontrada".
+
+Atenção ao tratamento de erro: quando a ação falha por regra de negócio (ação inexistente, usuário sem permissão neste status), a API responde **HTTP 200** com a mensagem em `_metadata.MensagensErro`. Só a falta de acesso à requisição responde 406.
 
 ```bash
 #!/usr/bin/env bash
@@ -306,7 +305,7 @@ PAYLOAD=$(cat <<'ENDJSON'
 {
   "Id": "Encerrar [ENC]",
   "Descricao": "Problema resolvido. Impressora substituida e testada.",
-  "Motivo": 1
+  "tipoAvaliacao": 2
 }
 ENDJSON
 )
@@ -318,102 +317,139 @@ RESPOSTA=$(curl -s -w "\n%{http_code}" -X POST \
   -d "$PAYLOAD")
 
 HTTP_CODE=$(echo "$RESPOSTA" | tail -1)
-CORPO=$(echo "$RESPOSTA" | head -1)
+CORPO=$(echo "$RESPOSTA" | sed '$d')
 
-if [ "$HTTP_CODE" = "200" ]; then
-  echo "Acao executada com sucesso."
-elif [ "$HTTP_CODE" = "406" ]; then
-  echo "Erro de negocio (HTTP 406):"
+if [ "$HTTP_CODE" = "406" ]; then
+  # Padrao (a): corpo em texto puro
+  echo "Erro de negocio (HTTP 406): $CORPO"
+elif [ "$HTTP_CODE" = "200" ]; then
+  # Padrao (b): HTTP 200 pode trazer a mensagem em _metadata.MensagensErro
   echo "$CORPO" | python3 -c "
 import sys, json
 resp = json.load(sys.stdin)
-for msg in resp.get('_metadata', {}).get('MensagensErro', []):
-    print(f'  - {msg}')
+erros = resp.get('_metadata', {}).get('MensagensErro') if isinstance(resp, dict) else None
+if erros:
+    print('A acao NAO foi executada:')
+    for msg in erros:
+        print(f'  - {msg}')
+    sys.exit(1)
+print('Acao executada com sucesso.')
 "
 else
   echo "Erro HTTP $HTTP_CODE: $CORPO"
 fi
 ```
 
-**Outros exemplos de acoes:**
+**Outros exemplos de acoes** (use o `Id` exato devolvido pela listagem de ações):
 
 ```bash
-# Direcionar para outro grupo
+# Direcionar: NovoSolicitado recebe o Id do destino, copiado de
+# GET /v1/requisicoes/$REQUISICAO_ID/acoes/DIR/grupos (envie exatamente como veio)
 curl -s -X POST "$BASE_URL/v1/requisicoes/$REQUISICAO_ID/acoes" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"Id": "Direcionar [DIR]", "Descricao": "Direcionando para infra.", "GrupoId": 10}'
+  -d '{"Id": "Direcionar [DIR]", "Descricao": "Direcionando para infra.", "NovoSolicitado": "{ IdParticipante : 5, IdTipoPapel : 2 } "}'
 
-# Alterar prioridade
+# Alterar prioridade (1 = Alta, 2 = Media, 3 = Baixa)
 curl -s -X POST "$BASE_URL/v1/requisicoes/$REQUISICAO_ID/acoes" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"Id": "Alterar Prioridade [ALTPRI]", "Descricao": "Urgente.", "prioridade": 1}'
 ```
 
+Veja todos os campos de cada ação em [Ações de Workflow](../guias/acoes-workflow.md).
+
 ---
 
-## 6. Enviar Anexo
+## 6. Enviar Anexo (2 etapas)
 
-Faz upload de um arquivo como anexo de uma requisicao. Usa `multipart/form-data`. Atencao: a rota de upload e `/anexo` (singular).
+Enviar um arquivo exige **duas chamadas**. O upload (etapa 1) apenas grava o arquivo em uma área temporária e responde 200: **nada é anexado à requisição ainda**. É a submissão (etapa 2) que vincula o arquivo. Atenção às rotas: o upload usa `/anexo` (singular) e a submissão usa `/anexos/submeter`.
 
 ```bash
 #!/usr/bin/env bash
-# enviar-anexo.sh — Envia um arquivo como anexo de uma requisicao
+# enviar-anexo.sh — Envia um arquivo como anexo de uma requisicao (upload + submeter)
 
 BASE_URL="https://sua-empresa.bdesk.com.br/askrest"
 TOKEN="SEU_TOKEN_AQUI"
 REQUISICAO_ID=35174
 ARQUIVO="/caminho/para/relatorio.pdf"
+NOME=$(basename "$ARQUIVO")
 
 if [ ! -f "$ARQUIVO" ]; then
   echo "Arquivo nao encontrado: $ARQUIVO"
   exit 1
 fi
 
-echo "Enviando anexo: $(basename "$ARQUIVO")"
-
-RESPOSTA=$(curl -s -X POST \
+# Etapa 1: upload (area temporaria). O campo do formulario deve se chamar "file".
+echo "Etapa 1: enviando $NOME"
+UPLOAD=$(curl -s -X POST \
   "$BASE_URL/v1/requisicoes/$REQUISICAO_ID/anexo" \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@$ARQUIVO")
 
-echo "Resposta: $RESPOSTA"
+echo "Resposta do upload: $UPLOAD"
 
-echo "$RESPOSTA" | python3 -c "
+# O Id devolvido e um GUID em texto (nao e o id de um anexo da requisicao).
+# Se Id vier vazio ou MensagensErro preenchido, o upload falhou.
+GUID=$(echo "$UPLOAD" | python3 -c "
 import sys, json
 resp = json.load(sys.stdin)
-if resp.get('MensagensErro'):
-    print('Erro:', resp['MensagensErro'])
-else:
-    print(f\"Anexo enviado. ID: {resp.get('Id', '?')}\")
-"
+if resp.get('MensagensErro') or not resp.get('Id'):
+    print('Erro no upload:', resp.get('MensagensErro'), file=sys.stderr)
+    sys.exit(1)
+print(resp['Id'])
+") || exit 1
+
+# Etapa 2: submeter — vincula o arquivo a requisicao
+echo "Etapa 2: submetendo o anexo (GUID $GUID)"
+RESPOSTA=$(curl -s -w "\n%{http_code}" -X POST \
+  "$BASE_URL/v1/requisicoes/$REQUISICAO_ID/anexos/submeter" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"CodigoAcao\":\"ANDOC\",\"Anexos\":[{\"Id\":\"$GUID\",\"NomeDuranteUpload\":\"$NOME\",\"Titulo\":\"$NOME\"}]}")
+
+HTTP_CODE=$(echo "$RESPOSTA" | tail -1)
+CORPO=$(echo "$RESPOSTA" | sed '$d')
+
+if [ "$HTTP_CODE" != "200" ]; then
+  # HTTP 406: mensagem em texto puro (extensao nao permitida, sem permissao de anexar etc.)
+  echo "Falha ao submeter (HTTP $HTTP_CODE): $CORPO"
+  exit 1
+fi
+
+echo "Anexo vinculado a requisicao. Confira a lista:"
+curl -s "$BASE_URL/v1/requisicoes/$REQUISICAO_ID/anexos" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-**Estrutura da resposta:**
+**Resposta do upload (etapa 1):**
 
 ```json
 {
-  "Id": 5678,
+  "Id": "3f2c9a1e-7b4d-4c1a-9e55-0a1b2c3d4e5f",
   "MensagensErro": []
 }
 ```
 
-**Listar anexos existentes:**
+**Resposta da submissão (etapa 2, sucesso):**
 
-```bash
-curl -s -X GET \
-  "$BASE_URL/v1/requisicoes/$REQUISICAO_ID/anexos" \
-  -H "Authorization: Bearer $TOKEN"
+```json
+{
+  "_metadata": { "MensagensErro": [] },
+  "records": null
+}
 ```
 
-> **Nota:** Listagem usa `/anexos` (plural); upload usa `/anexo` (singular).
+> **Notas:**
+> - `NomeDuranteUpload` deve ter o nome do arquivo **com a extensão**; ele é validado (extensões como `.exe` e `.js` são recusadas com HTTP 406).
+> - Para vários arquivos, faça um upload por arquivo e envie todos os `Id` em uma única chamada de submissão (lista `Anexos`).
+> - Listagem e download usam `/anexos` (plural). Veja o guia completo em [Anexos](../guias/anexos.md).
 
 ---
 
 ## 7. Listar Catalogo
 
-Retorna todas as areas e formularios disponiveis para abertura de requisicoes.
+Retorna todas as áreas e formulários disponíveis para abertura de requisições.
 
 ```bash
 #!/usr/bin/env bash
@@ -457,7 +493,7 @@ for area in resp.get('records', []):
 }
 ```
 
-**Buscar detalhes de um formulario especifico:**
+**Buscar detalhes de um formulario especifico** (se o formulário não existir ou não for permitido, a API responde HTTP 403 com a mensagem em texto puro):
 
 ```bash
 FORMULARIO_ID=101
@@ -481,7 +517,7 @@ for conj in resp.get('Conjuntos', []):
 
 ## 8. Buscar Participante
 
-Pesquisa participantes por formulario-papel e termo de busca. Util para preencher campos do tipo participante ao abrir requisicoes.
+Pesquisa participantes por formulário-papel e termo de busca. Útil para preencher campos do tipo participante ao abrir requisições.
 
 ```bash
 #!/usr/bin/env bash
@@ -531,13 +567,13 @@ for p in resultado:
 ]
 ```
 
-> **Atenção:** O campo `Id` contem JSON serializado (nao um inteiro). O nome de exibicao esta em `Texto` (nao `Nome`). A resposta e um array direto, sem envelope `_metadata`.
+> **Atenção:** O campo `Id` contém JSON serializado (não um inteiro). O nome de exibição está em `Texto` (não `Nome`). A resposta é um array direto, sem envelope `_metadata`.
 
 ---
 
 ## Script Completo: Fluxo de Integracao
 
-Script de exemplo que encadeia todos os passos: login, consulta do catalogo, criacao de requisicao e envio de anexo.
+Script de exemplo que encadeia os passos: login, consulta do catálogo, criação de requisição, consulta e envio de anexo em 2 etapas. O script para ao primeiro erro e trata os dois padrões de erro da API.
 
 ```bash
 #!/usr/bin/env bash
@@ -548,12 +584,20 @@ set -e
 BASE_URL="https://sua-empresa.bdesk.com.br/askrest"
 LOGIN="seu-usuario"
 SENHA="sua-senha"
+ARQUIVO="/caminho/para/relatorio.pdf"
 
 echo "=== 1. Login ==="
 TOKEN=$(curl -s -X POST "$BASE_URL/v1/login/entrar" \
   -H "Content-Type: application/json" \
   -d "{\"Login\": \"$LOGIN\", \"Senha\": \"$SENHA\"}" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); t=json.loads(d['Dados']); print(t['access_token'])")
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+# O login responde 200 mesmo em falha
+if d.get('Dados') is None or d.get('MensagensErro'):
+    sys.exit('Falha no login: %s' % d.get('MensagensErro'))
+print(json.loads(d['Dados'])['access_token'])
+")
 echo "Autenticado. Token: ${TOKEN:0:20}..."
 
 echo
@@ -568,11 +612,17 @@ for area in json.load(sys.stdin).get('records',[]):
 
 echo
 echo "=== 3. Criar Requisicao ==="
-REQ_ID=$(curl -s -X POST "$BASE_URL/v1/requisicoes/abrir" \
+RESP=$(curl -s -w "\n%{http_code}" -X POST "$BASE_URL/v1/requisicoes/abrir" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"Formulario":101,"Conjuntos":{"DadosBasicos":{"Assunto":"Teste via API","Descricao":"Requisicao criada pelo script de integracao."}}}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin))")
+  -d '{"Formulario":101,"Conjuntos":{"DadosBasicos":{"Assunto":"Teste via API","Descricao":"Requisicao criada pelo script de integracao."}}}')
+CODE=$(echo "$RESP" | tail -1)
+CORPO=$(echo "$RESP" | sed '$d')
+if [ "$CODE" != "200" ]; then
+  echo "Erro ao criar (HTTP $CODE): $CORPO"
+  exit 1
+fi
+REQ_ID=$(echo "$CORPO" | tr -d '"')
 echo "Requisicao criada: #$REQ_ID"
 
 echo
@@ -582,9 +632,34 @@ curl -s "$BASE_URL/v1/requisicoes/$REQ_ID" \
   | python3 -c "
 import sys,json
 resp = json.load(sys.stdin)
-det = resp.get('Conjuntos',{}).get('Detalhes Do Pedido',{})
+if resp.get('MensagensErro') or resp.get('Conjuntos') is None:
+    sys.exit('Erro: %s' % resp.get('MensagensErro'))
+det = resp['Conjuntos'].get('Detalhes Do Pedido',{})
 print(f\"  Assunto: {det.get('Assunto','-')}\")
 print(f\"  Status : {det.get('Status','-')}\")
 "
+
+echo
+echo "=== 5. Anexar arquivo (upload + submeter) ==="
+NOME=$(basename "$ARQUIVO")
+GUID=$(curl -s -X POST "$BASE_URL/v1/requisicoes/$REQ_ID/anexo" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@$ARQUIVO" \
+  | python3 -c "
+import sys,json
+r = json.load(sys.stdin)
+if r.get('MensagensErro') or not r.get('Id'):
+    sys.exit('Erro no upload: %s' % r.get('MensagensErro'))
+print(r['Id'])
+")
+CODE=$(curl -s -o /tmp/submeter.txt -w "%{http_code}" -X POST "$BASE_URL/v1/requisicoes/$REQ_ID/anexos/submeter" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"CodigoAcao\":\"ANDOC\",\"Anexos\":[{\"Id\":\"$GUID\",\"NomeDuranteUpload\":\"$NOME\",\"Titulo\":\"$NOME\"}]}")
+if [ "$CODE" != "200" ]; then
+  echo "Falha ao submeter (HTTP $CODE): $(cat /tmp/submeter.txt)"
+  exit 1
+fi
+echo "Anexo vinculado."
 echo "Concluido."
 ```

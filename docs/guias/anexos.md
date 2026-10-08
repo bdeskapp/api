@@ -3,7 +3,8 @@
 ## O que voce vai aprender
 
 Como listar os anexos de uma requisicao, baixar um arquivo especifico e enviar novos arquivos
-como anexo — tudo via API BDesk.
+como anexo — tudo via API BDesk. O envio de um arquivo acontece em **dois passos**: primeiro o
+upload do arquivo, depois a submissao que o vincula a requisicao.
 
 ---
 
@@ -12,6 +13,9 @@ como anexo — tudo via API BDesk.
 - **Token de autenticacao valido** — veja o guia de [Autenticacao](../autenticacao.md).
 - **ID da requisicao** — o numero da requisicao a qual os anexos pertencem (ex: `12345`).
   Obtenha-o ao consultar a lista de requisicoes abertas ou encerradas.
+- **Permissao de anexar** — o usuario autenticado precisa poder executar a acao "anexar
+  documento" (codigo `ANDOC`) na requisicao, no status em que ela esta. Consulte
+  `GET /v1/requisicoes/{id}/acoes` para ver as acoes disponiveis.
 
 ---
 
@@ -19,8 +23,8 @@ como anexo — tudo via API BDesk.
 
 ### Passo 1: Listar os anexos da requisicao
 
-Use `GET /v1/requisicoes/{id}/anexos` para obter todos os arquivos vinculados a uma requisicao.
-A resposta inclui a URL de download de cada anexo.
+Use `GET /v1/requisicoes/{id}/anexos` para obter todos os arquivos ja vinculados a uma
+requisicao. A resposta inclui a URL de download de cada anexo.
 
 ```bash
 curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/12345/anexos" \
@@ -32,40 +36,50 @@ curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/12345/anexos" \
 ```json
 {
   "_metadata": {
-    "Release": "9.8.0",
-    "MensagensErro": [],
-    "LogAmigavel": []
+    "MensagensErro": []
   },
   "records": [
     {
       "Id": 5678,
-      "Nome": "contrato-servico.pdf",
-      "Tamanho": 204800,
-      "DataUpload": "2025-10-01T14:22:00",
-      "UsuarioUpload": "Maria Santos",
+      "Titulo": "Contrato de servico",
+      "NomeDocumentoFisico": "00012345_001_contrato-servico.pdf",
+      "NomeUsuario": "Maria Santos",
+      "DataInclusao": "2025-10-01T14:22:00",
+      "Versao": 1,
+      "Publico": true,
+      "Invalido": false,
+      "Excluido": false,
       "UrlDownload": "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/12345/anexos/5678"
     },
     {
       "Id": 5679,
-      "Nome": "evidencia-erro.png",
-      "Tamanho": 98304,
-      "DataUpload": "2025-10-01T15:10:00",
-      "UsuarioUpload": "Joao Silva",
+      "Titulo": "Evidencia do erro",
+      "NomeDocumentoFisico": "00012345_001_evidencia-erro.png",
+      "NomeUsuario": "Joao Silva",
+      "DataInclusao": "2025-10-01T15:10:00",
+      "Versao": 1,
+      "Publico": true,
+      "Invalido": false,
+      "Excluido": false,
       "UrlDownload": "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/12345/anexos/5679"
     }
   ]
 }
 ```
 
-> **Nota sobre a rota:** O endpoint de listagem usa plural `/anexos`. O endpoint de upload usa
-> singular `/anexo`. Essa diferenca e intencional — use a rota correta para cada operacao.
+O `Id` do registro (numero inteiro) e o que identifica o anexo no download. Cada registro traz
+ainda outros campos, como `NomeTipoDocumento`, `Inline` e `IdAnexoOriginal`.
+
+> **Nota sobre as rotas:** a listagem e o download usam o plural `/anexos`. O upload usa o
+> singular `/anexo`, e a submissao usa `/anexos/submeter`. Use a rota correta para cada operacao.
 
 ---
 
 ### Passo 2: Baixar um anexo
 
 Use a URL do campo `UrlDownload` retornada na listagem para fazer o download do arquivo.
-O servidor retorna o binario do arquivo com o `Content-Type` apropriado.
+O servidor retorna o binario do arquivo com o `Content-Type` apropriado e o nome do arquivo no
+cabecalho `Content-Disposition` (e o nome fisico gravado no servidor, nao o `Titulo`).
 
 ```bash
 curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/12345/anexos/5678" \
@@ -73,12 +87,21 @@ curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/12345/anexos/56
   -o "contrato-servico.pdf"
 ```
 
+Se a requisicao ou o documento nao existirem, ou o usuario nao tiver acesso, a resposta e
+HTTP 406 com uma mensagem em texto puro (nao e um arquivo nem um JSON).
+
 ---
 
-### Passo 3: Enviar um arquivo como anexo (upload)
+### Passo 3: Enviar um arquivo como anexo (2 etapas)
 
-Use `POST /v1/requisicoes/{id}/anexo` com `Content-Type: multipart/form-data` para anexar
-um arquivo a uma requisicao existente. O campo de formulario deve se chamar `file`.
+Enviar um anexo exige duas chamadas. **Apenas o upload nao anexa nada.** Se voce parar na
+primeira etapa, a API responde 200 e o arquivo fica numa area temporaria, mas a requisicao
+continua sem o anexo.
+
+#### Etapa 1 — Upload do arquivo
+
+Use `POST /v1/requisicoes/{id}/anexo` com `Content-Type: multipart/form-data`. O campo de
+formulario recomendado e `file` (o servidor le o primeiro arquivo enviado, qualquer que seja o nome do campo).
 
 ```bash
 curl -X POST "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/12345/anexo" \
@@ -90,13 +113,67 @@ curl -X POST "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/12345/anex
 
 ```json
 {
-  "Id": 5680,
+  "Id": "3f2c9a1e-7b4d-4c1a-9e55-0a1b2c3d4e5f",
   "MensagensErro": []
 }
 ```
 
-O campo `Id` contem o identificador do anexo criado. Se `MensagensErro` estiver preenchido,
-o upload falhou — leia as mensagens para entender o motivo.
+O campo `Id` e um **GUID em texto** que identifica o arquivo na area temporaria. Ele **nao** e o
+id de um anexo da requisicao. Se `MensagensErro` vier preenchido (ou `Id` vazio), o upload
+falhou — leia as mensagens. Guarde o `Id` para a etapa 2.
+
+Nesta etapa a API nao valida o nome nem a extensao do arquivo; isso acontece na etapa 2.
+
+#### Etapa 2 — Submeter o anexo a requisicao
+
+Use `POST /v1/requisicoes/{id}/anexos/submeter` com corpo JSON (`Content-Type: application/json`)
+para vincular o arquivo enviado a requisicao:
+
+```json
+{
+  "CodigoAcao": "ANDOC",
+  "Anexos": [
+    {
+      "Id": "3f2c9a1e-7b4d-4c1a-9e55-0a1b2c3d4e5f",
+      "NomeDuranteUpload": "arquivo.pdf",
+      "Titulo": "arquivo.pdf"
+    }
+  ]
+}
+```
+
+| Campo | Descricao |
+|-------|-----------|
+| `CodigoAcao` | Codigo da acao "anexar documento" do formulario. Normalmente `ANDOC`. |
+| `Anexos[].Id` | O GUID devolvido pela etapa 1. |
+| `Anexos[].NomeDuranteUpload` | Nome do arquivo **com a extensao** (ex.: `relatorio.pdf`). E validado e define o nome final do arquivo no servidor. |
+| `Anexos[].Titulo` | Titulo exibido do documento na requisicao. |
+
+Para enviar varios arquivos, faca um upload (etapa 1) para cada arquivo e envie todos os `Id`
+recebidos numa unica chamada de submissao, como itens de `Anexos`.
+
+```bash
+curl -X POST "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/12345/anexos/submeter" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
+  -H "Content-Type: application/json" \
+  -d '{"CodigoAcao":"ANDOC","Anexos":[{"Id":"3f2c9a1e-7b4d-4c1a-9e55-0a1b2c3d4e5f","NomeDuranteUpload":"arquivo.pdf","Titulo":"arquivo.pdf"}]}'
+```
+
+**Resposta (sucesso):** HTTP 200 com o envelope abaixo e `MensagensErro` vazio.
+
+```json
+{
+  "_metadata": {
+    "Release": "9.8.0",
+    "LogAmigavel": [],
+    "MensagensErro": []
+  },
+  "records": null
+}
+```
+
+Depois da submissao, confira o resultado com `GET /v1/requisicoes/{id}/anexos`: o novo
+documento deve aparecer na lista.
 
 ---
 
@@ -118,10 +195,18 @@ curl -s "$BASE/v1/requisicoes/$REQ_ID/anexos/5678" \
   -H "Authorization: Bearer $TOKEN" \
   -o "arquivo-baixado.pdf"
 
-# 3. Enviar novo anexo
-curl -X POST "$BASE/v1/requisicoes/$REQ_ID/anexo" \
+# 3. Enviar novo anexo — etapa 1: upload (devolve o Id em GUID)
+curl -s -X POST "$BASE/v1/requisicoes/$REQ_ID/anexo" \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@/caminho/para/arquivo.pdf"
+# Resposta: {"Id":"3f2c9a1e-7b4d-4c1a-9e55-0a1b2c3d4e5f","MensagensErro":[]}
+
+# 4. Enviar novo anexo — etapa 2: submeter (use o Id recebido na etapa 1)
+GUID="3f2c9a1e-7b4d-4c1a-9e55-0a1b2c3d4e5f"
+curl -s -X POST "$BASE/v1/requisicoes/$REQ_ID/anexos/submeter" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"CodigoAcao\":\"ANDOC\",\"Anexos\":[{\"Id\":\"$GUID\",\"NomeDuranteUpload\":\"arquivo.pdf\",\"Titulo\":\"arquivo.pdf\"}]}"
 ```
 
 ---
@@ -145,15 +230,16 @@ print(f"{len(anexos)} anexo(s) encontrado(s)")
 # 2. Baixar o primeiro anexo
 if anexos:
     url_download = anexos[0]["UrlDownload"]
-    nome_arquivo = anexos[0]["Nome"]
+    nome_arquivo = anexos[0]["NomeDocumentoFisico"]
     download = requests.get(url_download, headers=HEADERS)
     download.raise_for_status()
     with open(nome_arquivo, "wb") as f:
         f.write(download.content)
     print(f"Arquivo salvo: {nome_arquivo}")
 
-# 3. Enviar novo anexo
+# 3. Enviar novo anexo — etapa 1: upload (area temporaria)
 caminho = "/caminho/para/arquivo.pdf"
+nome = "arquivo.pdf"
 with open(caminho, "rb") as f:
     upload = requests.post(
         f"{BASE}/v1/requisicoes/{REQ_ID}/anexo",
@@ -162,10 +248,24 @@ with open(caminho, "rb") as f:
     )
 upload.raise_for_status()
 resultado = upload.json()
-if resultado.get("MensagensErro"):
-    print("Erro no upload:", resultado["MensagensErro"])
-else:
-    print(f"Anexo enviado com Id: {resultado['Id']}")
+if resultado.get("MensagensErro") or not resultado.get("Id"):
+    raise SystemExit(f"Erro no upload: {resultado.get('MensagensErro')}")
+guid = resultado["Id"]  # GUID em texto, ainda NAO e um anexo da requisicao
+
+# 4. Enviar novo anexo — etapa 2: submeter (vincula o arquivo a requisicao)
+submissao = {
+    "CodigoAcao": "ANDOC",
+    "Anexos": [{"Id": guid, "NomeDuranteUpload": nome, "Titulo": nome}],
+}
+resp = requests.post(
+    f"{BASE}/v1/requisicoes/{REQ_ID}/anexos/submeter",
+    json=submissao,
+    headers=HEADERS
+)
+if resp.status_code != 200:
+    # 406: a mensagem vem em texto puro
+    raise SystemExit(f"Falha ao submeter ({resp.status_code}): {resp.text}")
+print("Anexo vinculado a requisicao")
 ```
 
 ---
@@ -185,21 +285,33 @@ Write-Host "$($lista.records.Count) anexo(s) encontrado(s)"
 # 2. Baixar o primeiro anexo
 $primeiro = $lista.records[0]
 Invoke-RestMethod -Uri $primeiro.UrlDownload -Headers $Headers `
-  -OutFile $primeiro.Nome
-Write-Host "Arquivo salvo: $($primeiro.Nome)"
+  -OutFile $primeiro.NomeDocumentoFisico
+Write-Host "Arquivo salvo: $($primeiro.NomeDocumentoFisico)"
 
-# 3. Enviar novo anexo
+# 3. Enviar novo anexo — etapa 1: upload (area temporaria)
 $caminho = "C:\caminho\para\arquivo.pdf"
+$nome = "arquivo.pdf"
 $form = @{ file = Get-Item -Path $caminho }
 $upload = Invoke-RestMethod -Method Post `
   -Uri "$Base/v1/requisicoes/$ReqId/anexo" `
   -Headers $Headers `
   -Form $form
-if ($upload.MensagensErro) {
-    Write-Error "Erro no upload: $($upload.MensagensErro -join ', ')"
-} else {
-    Write-Host "Anexo enviado com Id: $($upload.Id)"
+if ($upload.MensagensErro -or -not $upload.Id) {
+    throw "Erro no upload: $($upload.MensagensErro -join ', ')"
 }
+$guid = $upload.Id   # GUID em texto, ainda NAO e um anexo da requisicao
+
+# 4. Enviar novo anexo — etapa 2: submeter (vincula o arquivo a requisicao)
+$submissao = @{
+    CodigoAcao = "ANDOC"
+    Anexos     = @(@{ Id = $guid; NomeDuranteUpload = $nome; Titulo = $nome })
+} | ConvertTo-Json -Depth 5
+$resp = Invoke-RestMethod -Method Post `
+  -Uri "$Base/v1/requisicoes/$ReqId/anexos/submeter" `
+  -Headers $Headers `
+  -ContentType "application/json" `
+  -Body $submissao
+Write-Host "Anexo vinculado a requisicao"
 ```
 
 > **Versao minima do PowerShell:** O parametro `-Form` no `Invoke-RestMethod` esta disponivel
@@ -210,12 +322,20 @@ if ($upload.MensagensErro) {
 
 ## Erros Comuns
 
-| Codigo HTTP | Mensagem | Causa provavel | Como resolver |
-|-------------|----------|----------------|---------------|
-| 406 | "Extensao nao permitida" | O tipo do arquivo (ex: `.exe`, `.js`) esta na lista de extensoes bloqueadas do formulario | Use um formato permitido. A lista de extensoes bloqueadas aparece no campo `ExtensoesNaoPermitidas` ao consultar `GET /v1/cardapio/{id}` |
-| 406 | "Arquivo muito grande" | O tamanho do arquivo excede o limite configurado | Compacte o arquivo ou divida em partes menores antes do upload |
-| 401 | Token invalido ou ausente | O header `Authorization` esta ausente ou o token expirou | Obtenha um novo token via `POST /v1/login/entrar` |
-| 404 | Requisicao nao encontrada | O `{id}` da requisicao nao existe ou o usuario nao tem acesso | Confirme o ID e as permissoes do usuario autenticado |
+Os erros de negocio (HTTP 406) trazem a mensagem em **texto puro** no corpo da resposta, nao em JSON.
+
+| Codigo HTTP | Etapa | Mensagem / situacao | Causa provavel | Como resolver |
+|-------------|-------|---------------------|----------------|---------------|
+| 200 com `Id` vazio e `MensagensErro` preenchido | Upload | Falha ao gravar o arquivo no servidor | Area de armazenamento indisponivel | Leia `MensagensErro` e tente novamente; se persistir, acione o suporte |
+| 406 | Upload | "Requisicao inexistente ou usuario sem acesso" | O `{id}` nao existe ou o usuario nao tem acesso | Confirme o ID e as permissoes do usuario autenticado |
+| 500 | Upload | Corpo sem nenhum arquivo | A requisicao nao trouxe o arquivo no `multipart/form-data` | Envie o arquivo no campo `file` |
+| 406 | Submissao | "Caractere nao permitido no nome do arquivo" | `NomeDuranteUpload` contem quebra de linha, tabulacao, barra ou barra invertida | Envie apenas o nome do arquivo, sem caminho |
+| 406 | Submissao | "Extensao nao permitida: .ext" | A extensao (ex: `.exe`, `.js`) esta na lista de bloqueadas, ou o nome nao tem extensao | Use um formato permitido e inclua a extensao em `NomeDuranteUpload`. A lista de extensoes bloqueadas aparece no campo `ExtensoesNaoPermitidas` ao consultar `GET /v1/cardapio/{id}` |
+| 406 | Submissao | "Usuario sem permissao de anexar documento neste status" | A acao de anexar nao esta disponivel para o usuario no status atual | Consulte `GET /v1/requisicoes/{id}/acoes` |
+| 406 | Submissao | Mensagem informando que o formulario nao tem a acao de anexar | O `CodigoAcao` nao existe no formulario da requisicao | Confira o `CodigoAcao` (normalmente `ANDOC`) |
+| 406 | Submissao | Falha ao gravar o anexo | Erro ao registrar o documento na requisicao | Leia a mensagem e tente novamente; se persistir, acione o suporte |
+| 500 | Submissao | `Id` inexistente | O GUID nao existe na area temporaria (digitado errado ou ja submetido) | Refaca o upload (etapa 1) e use o `Id` recebido |
+| 401 | Qualquer | Token invalido ou ausente | O header `Authorization` esta ausente, o token e invalido ou o usuario foi desativado | Obtenha um novo token via `POST /v1/login/entrar` |
 
 ---
 

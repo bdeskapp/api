@@ -34,19 +34,19 @@ curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/participantes/7/pesquisar/j
   -H "Authorization: Bearer SEU_TOKEN_AQUI"
 ```
 
-**Resposta:**
+**Resposta** (um **array direto**, sem envelope `_metadata`/`records`; ate 100 itens):
 
 ```json
-{
-  "_metadata": { "Release": "9.8.0", "MensagensErro": [] },
-  "records": [
-    { "Id": "{\"IdParticipante\":1803,\"IdTipoPapel\":1}", "Texto": "Joao Silva" },
-    { "Id": "{\"IdParticipante\":1784,\"IdTipoPapel\":1}", "Texto": "Joao Pereira - TI" }
-  ]
-}
+[
+  { "Id": "{\"IdParticipante\":1803,\"IdTipoPapel\":1}", "Texto": "Joao Silva", "Legenda": null, "IdDominioPai": null },
+  { "Id": "{\"IdParticipante\":1784,\"IdTipoPapel\":1}", "Texto": "Joao Pereira - TI", "Legenda": null, "IdDominioPai": null }
+]
 ```
 
-> **Atencao:** O campo `Id` e retornado como uma **string JSON codificada** contendo `IdParticipante` e `IdTipoPapel`. Ao usar esse valor em outros endpoints (ex.: atribuir analista em uma acao de workflow), envie-o como string exatamente como foi retornado.
+> **Atencao:** O campo `Id` e uma **string que contem JSON** (com `IdParticipante` e `IdTipoPapel`),
+> e nao um numero nem um objeto. Ao usar esse valor em outros endpoints (ex.: indicar o participante
+> como participante do formulario na abertura da requisicao), envie-o como string exatamente como foi
+> retornado, sem converter. `Legenda` e `IdDominioPai` vem sempre `null` nesta busca.
 
 ---
 
@@ -64,7 +64,9 @@ curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/participantes/ObterParticip
   -H "Authorization: Bearer SEU_TOKEN_AQUI"
 ```
 
-A estrutura da resposta e identica ao endpoint anterior.
+Os itens (`Id`, `Texto`) sao os mesmos do endpoint anterior, mas aqui a resposta **tem
+envelope**: os itens ficam em `records`, dentro de `{ "_metadata": {...}, "records": [...] }`.
+Os dois parametros sao obrigatorios; se algum faltar, a API tende a responder 404.
 
 ---
 
@@ -121,23 +123,23 @@ headers  = {
 formulario_papel_id = 7
 termo               = "maria"
 
-# Buscar participantes
+# Buscar participantes (esta rota devolve um array direto, sem "records")
 resp = requests.get(
     f"{BASE_URL}/v1/participantes/{formulario_papel_id}/pesquisar/{termo}",
     headers=headers
 )
 resp.raise_for_status()
 
-participantes = resp.json()["records"]
+participantes = resp.json()
 print(f"Participantes encontrados: {len(participantes)}")
 for p in participantes:
-    # Atencao: p["Id"] e uma string
+    # Atencao: p["Id"] e uma string que contem JSON
     print(f"  Id={p['Id']} — {p['Texto']}")
 
-# Usar o Id do primeiro resultado em uma acao de workflow (exemplo)
+# Usar o Id do primeiro resultado como veio, sem converter (exemplo)
 if participantes:
-    id_participante = participantes[0]["Id"]  # string, ex.: "45"
-    print(f"Usar Id '{id_participante}' no campo NovoSolicitado ao direcionar a requisicao")
+    id_participante = participantes[0]["Id"]  # ex.: '{"IdParticipante":123,"IdTipoPapel":2}'
+    print(f"Enviar o texto '{id_participante}' como valor do participante, sem alterar")
 ```
 
 ---
@@ -155,9 +157,10 @@ $Resp = Invoke-RestMethod `
     -Uri "$BaseUrl/v1/participantes/$FormularioPapelId/pesquisar/$Termo" `
     -Headers $Headers
 
-Write-Host "Participantes encontrados: $($Resp.records.Count)"
-foreach ($p in $Resp.records) {
-    # Atencao: $p.Id e uma string
+# Esta rota devolve um array direto, sem "records"
+Write-Host "Participantes encontrados: $(@($Resp).Count)"
+foreach ($p in $Resp) {
+    # Atencao: $p.Id e uma string que contem JSON
     Write-Host "  Id=$($p.Id) — $($p.Texto)"
 }
 
@@ -166,6 +169,7 @@ $Resp2 = Invoke-RestMethod `
     -Uri "$BaseUrl/v1/participantes/ObterParticipantes2?formularioPapelId=$FormularioPapelId&termo=$Termo" `
     -Headers $Headers
 
+# Esta rota (ObterParticipantes2) tem envelope: os itens ficam em "records"
 Write-Host "Resultado alternativo: $($Resp2.records.Count) participantes"
 ```
 
@@ -176,4 +180,4 @@ Write-Host "Resultado alternativo: $($Resp2.records.Count) participantes"
 Com os participantes identificados, voce pode:
 
 - [Criar Requisicoes](criar-requisicoes.md) — usar o `Id` retornado ao definir participantes na abertura
-- [Acoes de Workflow](acoes-workflow.md) — usar o `Id` no campo `NovoSolicitado` ao direcionar ou atribuir uma requisicao
+- [Acoes de Workflow](acoes-workflow.md) — para direcionar uma requisicao, use o `Id` retornado por `GET /v1/requisicoes/{id}/acoes/DIR/grupos`, e nao o desta busca

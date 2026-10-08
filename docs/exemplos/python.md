@@ -4,11 +4,13 @@ Exemplos completos de integracao com a API BDesk usando Python 3.
 
 > **Pre-requisito:** `pip install requests`
 
+> **Sobre erros:** a API sinaliza falhas de duas formas: HTTP 406 com a mensagem em **texto puro**, ou HTTP 200 com a mensagem em `MensagensErro` (no envelope `_metadata`, ou na raiz da resposta no login e em `GET /v1/requisicoes/{id}`). A classe abaixo trata os dois casos. Veja [Tratamento de Erros](../referencia/erros.md).
+
 ---
 
 ## 1. Classe Helper `BDeskApi`
 
-Classe reutilizavel que encapsula autenticacao, tratamento de erros e todas as operacoes principais da API.
+Classe reutilizavel que encapsula autenticacao, tratamento de erros e as operacoes principais da API.
 
 ```python
 """
@@ -23,11 +25,15 @@ import requests
 
 
 class BDeskApiError(Exception):
-    """Excecao para erros de negocio retornados pela API (HTTP 406)."""
+    """Excecao para erros de negocio retornados pela API.
+
+    Cobre os dois padroes da API: HTTP 406 (mensagem em texto puro) e
+    HTTP 200 com a mensagem em MensagensErro.
+    """
 
     def __init__(self, mensagens):
         self.mensagens = mensagens if isinstance(mensagens, list) else [mensagens]
-        super().__init__("; ".join(self.mensagens))
+        super().__init__("; ".join(str(m) for m in self.mensagens))
 
 
 class BDeskApi:
@@ -36,7 +42,7 @@ class BDeskApi:
 
     Exemplo de uso:
         api = BDeskApi("https://sua-empresa.bdesk.com.br/askrest", "usuario", "senha")
-        abertas = api.listar_abertas(page_size=10)
+        abertas = api.listar_abertas(limite=10)
     """
 
     def __init__(self, base_url: str, login: str, senha: str):
@@ -60,12 +66,18 @@ class BDeskApi:
         """
         Autentica o usuario e armazena o token internamente.
 
-        O campo Dados da resposta e uma string JSON escapada — nao um objeto.
-        Sao necessarios dois niveis de parse para extrair o access_token.
+        O login responde HTTP 200 mesmo quando falha: nesse caso Dados vem
+        nulo e a mensagem fica em MensagensErro (na raiz da resposta).
+        Quando funciona, Dados e uma string JSON escapada — nao um objeto —
+        e sao necessarios dois niveis de parse para extrair o access_token.
+
+        O token nao expira por tempo no servidor (expires_in e apenas
+        informativo): guarde-o e reutilize-o. Se uma chamada futura responder
+        401, faca login novamente.
 
         Raises:
-            BDeskApiError: Se as credenciais forem invalidas ou a licenca estiver expirada.
-            requests.HTTPError: Para erros HTTP nao-406.
+            BDeskApiError: Se as credenciais forem invalidas ou o login nao for permitido.
+            requests.HTTPError: Para erros HTTP.
         """
         url = f"{self.base_url}/v1/login/entrar"
         resp = requests.post(
@@ -73,13 +85,11 @@ class BDeskApi:
             json={"Login": login, "Senha": senha},
             timeout=30,
         )
-
-        if resp.status_code == 406:
-            corpo = resp.json()
-            raise BDeskApiError(corpo.get("MensagensErro", ["Credenciais invalidas."]))
-
         resp.raise_for_status()
         corpo = resp.json()
+
+        if corpo.get("Dados") is None or corpo.get("MensagensErro"):
+            raise BDeskApiError(corpo.get("MensagensErro") or ["Falha no login."])
 
         # Dados e uma string JSON — nao um objeto direto
         dados = json.loads(corpo["Dados"])
@@ -92,42 +102,32 @@ class BDeskApi:
             "Content-Type": "application/json",
         }
 
-    def _check_errors(self, resp: requests.Response) -> dict:
+    def _checar(self, resp: requests.Response):
         """
-        Verifica a resposta por erros de negocio (HTTP 406) e MensagensErro.
+        Verifica a resposta pelos dois padroes de erro da API.
 
-        Args:
-            resp: Objeto de resposta do requests.
+        - HTTP 406: a mensagem vem em texto puro no corpo (nao e JSON).
+        - HTTP 200 com MensagensErro: em _metadata.MensagensErro (envelope padrao)
+          ou na raiz da resposta (login, detalhes da requisicao, upload).
+        - Outros erros HTTP (401, 404, 500): levantados por raise_for_status().
 
         Returns:
-            O corpo da resposta como dicionario.
+            O corpo da resposta ja convertido de JSON (dict, lista ou texto).
 
         Raises:
-            BDeskApiError: Se houver mensagens de erro ou status 406.
-            requests.HTTPError: Para outros erros HTTP (401, 500, etc.).
+            BDeskApiError: Em erro de negocio (406, ou 200 com MensagensErro).
+            requests.HTTPError: Para os demais erros HTTP.
         """
         if resp.status_code == 406:
-            try:
-                corpo = resp.json()
-                mensagens = (
-                    corpo.get("_metadata", {}).get("MensagensErro")
-                    or corpo.get("MensagensErro")
-                    or ["Erro de negocio (HTTP 406)."]
-                )
-                raise BDeskApiError(mensagens)
-            except (ValueError, KeyError):
-                raise BDeskApiError([f"Erro HTTP 406: {resp.text}"])
+            raise BDeskApiError(resp.text.strip().splitlines() or ["Erro de negocio (HTTP 406)."])
 
         resp.raise_for_status()
         corpo = resp.json()
 
-        # Verificar MensagensErro no envelope (alguns endpoints retornam 200 com erro)
-        mensagens = (
-            corpo.get("_metadata", {}).get("MensagensErro")
-            or corpo.get("MensagensErro")
-        )
-        if mensagens:
-            raise BDeskApiError(mensagens)
+        if isinstance(corpo, dict):
+            mensagens = (corpo.get("_metadata") or {}).get("MensagensErro") or corpo.get("MensagensErro")
+            if mensagens:
+                raise BDeskApiError(mensagens)
 
         return corpo
 
@@ -135,32 +135,42 @@ class BDeskApi:
     # Requisicoes
     # ------------------------------------------------------------------
 
-    def listar_abertas(self, page: int = 1, page_size: int = 20) -> dict:
+    def listar_abertas(self, limite: int = 500, filtros: dict = None) -> dict:
         """
-        Lista requisicoes abertas do usuario autenticado com paginacao.
+        Lista requisicoes abertas do usuario autenticado.
+
+        A API NAO pagina: a resposta traz tudo ate o limite informado
+        (LimiteRequisicoes, padrao 500). Para reduzir o volume, use filtros.
 
         Args:
-            page: Numero da pagina (base 1, padrao 1).
-            page_size: Itens por pagina (padrao 20, maximo 100).
+            limite: Maximo de requisicoes devolvidas (LimiteRequisicoes).
+            filtros: Filtros opcionais, enviados no corpo de um POST.
+                     Ex.: {"DescricoesStatus": ["Aberta"],
+                           "AbertoEntre": {"Inicio": "2026-01-01T00:00:00",
+                                           "Fim": "2026-01-31T23:59:59"}}
 
         Returns:
-            Dicionario com 'records' (lista) e '_metadata' (paginacao, etc.).
+            Dicionario com 'records' (lista) e '_metadata'.
         """
         url = f"{self.base_url}/v1/requisicoes/abertas"
-        resp = requests.get(
-            url,
-            headers=self._headers(),
-            params={"pageNumber": page, "pageSize": page_size},
-            timeout=30,
-        )
-        return self._check_errors(resp)
+        if filtros:
+            corpo = dict(filtros, LimiteRequisicoes=limite)
+            resp = requests.post(url, headers=self._headers(), json=corpo, timeout=30)
+        else:
+            resp = requests.get(
+                url,
+                headers=self._headers(),
+                params={"LimiteRequisicoes": limite},
+                timeout=30,
+            )
+        return self._checar(resp)
 
     def buscar_requisicao(self, req_id: int) -> dict:
         """
         Retorna detalhes completos de uma requisicao pelo ID.
 
-        Args:
-            req_id: ID da requisicao.
+        Requisicao inexistente ou sem acesso volta com HTTP 200, Conjuntos nulo
+        e MensagensErro preenchido; _checar() converte isso em BDeskApiError.
 
         Returns:
             Dicionario com 'Conjuntos' (dados da requisicao) e URLs de navegacao.
@@ -168,7 +178,7 @@ class BDeskApi:
         """
         url = f"{self.base_url}/v1/requisicoes/{req_id}"
         resp = requests.get(url, headers=self._headers(), timeout=30)
-        return self._check_errors(resp)
+        return self._checar(resp)
 
     def criar_requisicao(
         self,
@@ -188,7 +198,7 @@ class BDeskApi:
                        Se None, usa apenas DadosBasicos com assunto e descricao.
 
         Returns:
-            ID numerico da requisicao criada (int).
+            Numero da requisicao criada (int).
 
         Raises:
             BDeskApiError: Se houver erros de validacao (campos obrigatorios, etc.).
@@ -210,17 +220,8 @@ class BDeskApi:
         url = f"{self.base_url}/v1/requisicoes/abrir"
         resp = requests.post(url, headers=self._headers(), json=payload, timeout=30)
 
-        if resp.status_code == 406:
-            corpo = resp.json()
-            raise BDeskApiError(
-                corpo.get("_metadata", {}).get("MensagensErro")
-                or corpo.get("MensagensErro", ["Erro ao criar requisicao."])
-            )
-
-        resp.raise_for_status()
-
-        # /abrir retorna apenas o ID como string simples (ex: "12345")
-        return int(resp.json())
+        # /abrir devolve apenas o numero como texto JSON (ex: "12345")
+        return int(self._checar(resp))
 
     def executar_acao(
         self,
@@ -228,86 +229,142 @@ class BDeskApi:
         acao_id: str,
         descricao: str = "",
         **kwargs,
-    ) -> dict:
+    ):
         """
         Executa uma acao de workflow em uma requisicao.
 
         Args:
             req_id: ID da requisicao.
-            acao_id: Identificador da acao no formato "Nome [CODIGO]"
-                     (ex: "Encerrar [ENC]", "Direcionar [DIR]").
-                     Use listar_acoes() para obter os IDs disponiveis.
+            acao_id: Identificador EXATO da acao, como devolvido por listar_acoes()
+                     (ex: "Encerrar [ENC]", "Direcionar [DIR]"). O codigo entre
+                     colchetes e obrigatorio: "ENC" sozinho resulta em
+                     "Acao nao encontrada".
             descricao: Comentario/descricao da acao.
             **kwargs: Parametros adicionais da acao:
-                - Motivo (int): ID do motivo (usado com ENC)
+                - tipoAvaliacao (int): 1, 2 ou 3 (usado com ENC e AVAL)
                 - prioridade (int): Nova prioridade (usado com ALTPRI)
-                - NovoSolicitado (str): ID do novo solicitado (usado com DIR)
-                - GrupoId (int): ID do novo grupo (usado com DIR)
+                - NovoSolicitado (str): Id do destino, copiado de listar_destinos_direcionar() (usado com DIR)
+                - usuResponsavelId (int): ID do usuario (usado com ATR e ATRR)
                 - IdRequisicaoAVincular (int): ID a vincular (usado com VINC)
-                - DescricaoRequisicao (str): Nova descricao (usado com ALTDES)
-                - AssuntoRequisicao (str): Novo assunto (usado com ALTDES)
+                - DescricaoRequisicao / AssuntoRequisicao (str): Novos textos (usado com ALTDES)
 
         Returns:
-            Dicionario com a resposta da API.
+            O corpo da resposta (envelope com records nulo, ou texto simples).
 
         Raises:
             BDeskApiError: Se a acao nao for permitida ou os dados estiverem incompletos.
+                           Atencao: a maioria dos erros desta rota volta com HTTP 200
+                           e a mensagem em _metadata.MensagensErro; _checar() cobre isso.
         """
         payload = {"Id": acao_id, "Descricao": descricao}
         payload.update(kwargs)
 
         url = f"{self.base_url}/v1/requisicoes/{req_id}/acoes"
         resp = requests.post(url, headers=self._headers(), json=payload, timeout=30)
-        return self._check_errors(resp)
+        return self._checar(resp)
 
     def listar_acoes(self, req_id: int) -> list:
         """
         Lista as acoes disponiveis para o usuario autenticado na requisicao.
 
-        Args:
-            req_id: ID da requisicao.
-
         Returns:
-            Lista de dicionarios com 'Nome', 'Id' e 'Campos' de cada acao.
+            Lista de dicionarios com 'Nome', 'Id', 'CodigoAcao' e 'Campos' de cada acao.
         """
         url = f"{self.base_url}/v1/requisicoes/{req_id}/acoes"
         resp = requests.get(url, headers=self._headers(), timeout=30)
-        corpo = self._check_errors(resp)
+        corpo = self._checar(resp)
         return corpo.get("records", [])
 
-    def enviar_anexo(self, req_id: int, caminho_arquivo: str) -> dict:
+    def listar_destinos_direcionar(self, req_id: int) -> list:
         """
-        Faz upload de um arquivo como anexo de uma requisicao.
+        Lista os grupos/usuarios que podem receber a requisicao na acao DIR.
+
+        Returns:
+            Lista de {'Id': '<texto pronto>', 'Texto': '<nome>'}. Use o 'Id',
+            sem alterar, em executar_acao(..., NovoSolicitado=<Id>).
+        """
+        url = f"{self.base_url}/v1/requisicoes/{req_id}/acoes/DIR/grupos"
+        resp = requests.get(url, headers=self._headers(), timeout=30)
+        corpo = self._checar(resp)
+        return corpo.get("records", [])
+
+    def enviar_arquivo(self, req_id: int, caminho_arquivo: str) -> str:
+        """
+        ETAPA 1 do anexo: faz upload do arquivo para a area temporaria.
+
+        ATENCAO: isto NAO anexa o arquivo a requisicao. A resposta e 200 mesmo
+        assim. Depois do upload, chame submeter_anexos() (etapa 2) com o GUID.
 
         Args:
             req_id: ID da requisicao.
-            caminho_arquivo: Caminho absoluto ou relativo do arquivo a enviar.
+            caminho_arquivo: Caminho do arquivo a enviar.
 
         Returns:
-            Dicionario com 'Id' (ID do anexo criado) e 'MensagensErro'.
+            GUID (texto) que identifica o arquivo na area temporaria.
 
         Raises:
             FileNotFoundError: Se o arquivo nao for encontrado.
-            BDeskApiError: Se o tipo de arquivo nao for permitido.
+            BDeskApiError: Se o upload falhar (Id vazio ou MensagensErro preenchido).
         """
         if not os.path.isfile(caminho_arquivo):
             raise FileNotFoundError(f"Arquivo nao encontrado: {caminho_arquivo}")
 
         url = f"{self.base_url}/v1/requisicoes/{req_id}/anexo"
 
-        # Para upload multipart, nao incluir Content-Type no header (requests define automaticamente)
+        # Upload multipart: nao incluir Content-Type (requests define sozinho)
         headers = {"Authorization": f"Bearer {self.token}"}
 
         with open(caminho_arquivo, "rb") as f:
-            nome_arquivo = os.path.basename(caminho_arquivo)
             resp = requests.post(
                 url,
                 headers=headers,
-                files={"file": (nome_arquivo, f)},
+                files={"file": (os.path.basename(caminho_arquivo), f)},
                 timeout=60,
             )
 
-        return self._check_errors(resp)
+        corpo = self._checar(resp)  # levanta erro se MensagensErro vier preenchido
+        if not corpo.get("Id"):
+            raise BDeskApiError(["O upload nao devolveu o identificador do arquivo."])
+        return corpo["Id"]
+
+    def submeter_anexos(self, req_id: int, anexos: list, codigo_acao: str = "ANDOC"):
+        """
+        ETAPA 2 do anexo: vincula os arquivos ja enviados a requisicao.
+
+        Args:
+            req_id: ID da requisicao.
+            anexos: Lista de dicionarios {"Id": <GUID da etapa 1>,
+                    "NomeDuranteUpload": "relatorio.pdf" (COM extensao),
+                    "Titulo": "Relatorio de marco"}.
+            codigo_acao: Codigo da acao "anexar documento" (normalmente "ANDOC").
+
+        Raises:
+            BDeskApiError: Em HTTP 406 (extensao nao permitida, usuario sem permissao
+                           de anexar neste status etc.) ou 200 com MensagensErro.
+        """
+        url = f"{self.base_url}/v1/requisicoes/{req_id}/anexos/submeter"
+        payload = {"CodigoAcao": codigo_acao, "Anexos": anexos}
+        resp = requests.post(url, headers=self._headers(), json=payload, timeout=60)
+        return self._checar(resp)
+
+    def enviar_anexo(self, req_id: int, caminho_arquivo: str, titulo: str = None) -> None:
+        """
+        Anexa um arquivo a uma requisicao (upload + submissao, as 2 etapas).
+
+        Depois de chamar, confira com listar_anexos() que o documento apareceu.
+        """
+        nome = os.path.basename(caminho_arquivo)
+        guid = self.enviar_arquivo(req_id, caminho_arquivo)
+        self.submeter_anexos(
+            req_id,
+            [{"Id": guid, "NomeDuranteUpload": nome, "Titulo": titulo or nome}],
+        )
+
+    def listar_anexos(self, req_id: int) -> list:
+        """Lista os anexos ja vinculados a requisicao (rota no plural: /anexos)."""
+        url = f"{self.base_url}/v1/requisicoes/{req_id}/anexos"
+        resp = requests.get(url, headers=self._headers(), timeout=30)
+        return self._checar(resp).get("records", [])
 
     # ------------------------------------------------------------------
     # Catalogo
@@ -322,32 +379,25 @@ class BDeskApi:
         """
         url = f"{self.base_url}/v1/cardapio"
         resp = requests.get(url, headers=self._headers(), timeout=30)
-        resp.raise_for_status()
-        corpo = resp.json()
-        return corpo.get("records", [])
+        return self._checar(resp).get("records", [])
 
     def buscar_formulario(self, formulario_id: int) -> dict:
         """
         Retorna os conjuntos e campos de um formulario especifico.
 
-        Args:
-            formulario_id: ID do formulario (obtido via listar_catalogo()).
+        Formulario inexistente ou nao permitido responde HTTP 403 (texto puro);
+        isso levanta requests.HTTPError.
 
         Returns:
             Dicionario com 'Nome', 'Versao', 'Conjuntos' e URLs de navegacao.
         """
         url = f"{self.base_url}/v1/cardapio/formularios/{formulario_id}"
         resp = requests.get(url, headers=self._headers(), timeout=30)
-        resp.raise_for_status()
-        return resp.json()
+        return self._checar(resp)
 
     def pesquisar_participantes(self, formulario_papel_id: int, termo: str) -> list:
         """
         Pesquisa participantes por formulario-papel e termo de busca.
-
-        Args:
-            formulario_papel_id: ID do formulario-papel (do campo de participante no formulario).
-            termo: Texto para pesquisa (nome parcial do participante).
 
         Returns:
             Lista de participantes com 'Id' (JSON serializado) e 'Texto' (nome).
@@ -358,7 +408,7 @@ class BDeskApi:
         resp.raise_for_status()
         # Retorna array direto (sem envelope _metadata)
         resultado = resp.json()
-        # Fazer parse do campo Id (JSON serializado) para facilitar uso
+        # Parse do campo Id (JSON serializado) para facilitar o uso
         for item in resultado:
             try:
                 item["_id_parsed"] = json.loads(item["Id"])
@@ -388,36 +438,53 @@ print("Autenticado com sucesso.")
 ### Listar Requisicoes Abertas
 
 ```python
-# Listar as 10 primeiras requisicoes abertas
-abertas = api.listar_abertas(page_size=10)
+# A API nao pagina: informe um limite (padrao 500) e use filtros para reduzir o volume
+abertas = api.listar_abertas(limite=10)
 
-paginacao = abertas.get("_metadata", {}).get("Pagination", {})
-print(f"Total: {paginacao.get('TotalRecords', '?')} requisicoes abertas")
-print(f"Pagina {paginacao.get('CurrentPage', 1)} de {paginacao.get('TotalPages', 1)}")
+registros = abertas["records"]
+print(f"{len(registros)} requisicoes abertas")
+if len(registros) >= 10:
+    print("Atencao: o limite foi atingido; pode haver mais requisicoes.")
 print()
 
-for req in abertas["records"]:
+for req in registros:
     print(f"#{req['RequisicaoId']} - {req['Assunto']}")
     print(f"  Status: {req['Status']} | Responsavel: {req.get('Responsavel', '-')}")
     print(f"  Abertura: {req['DataAbertura'][:10]}")
 ```
 
+**Com filtros (periodo de abertura e status):**
+
+```python
+janeiro = api.listar_abertas(
+    limite=200,
+    filtros={
+        "DescricoesStatus": ["Aberta"],
+        "AbertoEntre": {"Inicio": "2026-01-01T00:00:00", "Fim": "2026-01-31T23:59:59"},
+    },
+)
+print(len(janeiro["records"]))
+```
+
 ### Buscar Detalhes de uma Requisicao
 
 ```python
-detalhes = api.buscar_requisicao(35174)
+try:
+    detalhes = api.buscar_requisicao(35174)
+except BDeskApiError as e:
+    # Requisicao inexistente ou sem acesso: HTTP 200 com MensagensErro
+    print(f"Nao foi possivel consultar: {e}")
+else:
+    # Conjuntos e um dicionario (diferente do catalogo, onde e um array)
+    conjuntos = detalhes["Conjuntos"]
+    info = conjuntos.get("Detalhes Do Pedido", {})
 
-# Conjuntos e um dicionario (diferente do catalogo, onde e um array)
-conjuntos = detalhes.get("Conjuntos", {})
-info = conjuntos.get("Detalhes Do Pedido", {})
+    print(f"Assunto  : {info.get('Assunto', '-')}")
+    print(f"Status   : {info.get('Status', '-')}")
+    print(f"Descricao: {info.get('Descricao', '-')}")
 
-print(f"Assunto  : {info.get('Assunto', '-')}")
-print(f"Status   : {info.get('Status', '-')}")
-print(f"Descricao: {info.get('Descricao', '-')}")
-
-participantes = conjuntos.get("Participantes", {})
-for papel, nome in participantes.items():
-    print(f"  {papel}: {nome}")
+    for papel, nome in conjuntos.get("Participantes", {}).items():
+        print(f"  {papel}: {nome}")
 ```
 
 ### Criar Requisicao
@@ -444,7 +511,7 @@ req_id = api.criar_requisicao(
     assunto="Compra de equipamentos",
     descricao="Solicitacao de compra para o departamento de TI.",
     conjuntos={
-        # Conjuntos de linhas multiplas (Multiplo: true)
+        # Conjuntos de linhas multiplas (Multiplo: true) recebem uma lista de objetos
         "Itens": [
             {"Produto": "Teclado", "Quantidade": 2},
             {"Produto": "Mouse", "Quantidade": 5},
@@ -457,7 +524,7 @@ print(f"Requisicao de compra criada: #{req_id}")
 ### Listar e Executar Acoes
 
 ```python
-# Ver quais acoes estao disponiveis
+# Ver quais acoes estao disponiveis (o Id inclui o codigo entre colchetes)
 acoes = api.listar_acoes(req_id)
 print("Acoes disponiveis:")
 for acao in acoes:
@@ -469,25 +536,27 @@ try:
         req_id=req_id,
         acao_id="Encerrar [ENC]",
         descricao="Problema resolvido. Equipamento substituido.",
-        Motivo=1,
+        tipoAvaliacao=2,
     )
     print(f"Requisicao #{req_id} encerrada.")
 except BDeskApiError as e:
+    # Cobre HTTP 406 e tambem HTTP 200 com MensagensErro
     print(f"Nao foi possivel encerrar: {e}")
 ```
 
 **Outros exemplos de acoes:**
 
 ```python
-# Direcionar para outro grupo
+# Direcionar: o Id do destino vem de acoes/DIR/grupos e vai, sem alteracao, em NovoSolicitado
+destinos = api.listar_destinos_direcionar(req_id)
 api.executar_acao(
     req_id=req_id,
     acao_id="Direcionar [DIR]",
     descricao="Direcionando para equipe de infraestrutura.",
-    GrupoId=10,
+    NovoSolicitado=destinos[0]["Id"],
 )
 
-# Alterar prioridade
+# Alterar prioridade (1 = Alta, 2 = Media, 3 = Baixa)
 api.executar_acao(
     req_id=req_id,
     acao_id="Alterar Prioridade [ALTPRI]",
@@ -504,19 +573,37 @@ api.executar_acao(
 )
 ```
 
-### Upload de Anexo
+### Anexar Arquivo (2 etapas)
+
+O envio de um anexo tem duas chamadas: o **upload** apenas guarda o arquivo numa area temporaria; a **submissao** e que o vincula a requisicao. Parar no upload deixa a requisicao sem anexo, mesmo com resposta 200.
 
 ```python
 try:
-    resultado = api.enviar_anexo(
-        req_id=req_id,
-        caminho_arquivo="/caminho/para/relatorio.pdf",
-    )
-    print(f"Anexo enviado. ID do anexo: {resultado['Id']}")
+    # Atalho: faz as duas etapas
+    api.enviar_anexo(req_id, "/caminho/para/relatorio.pdf", titulo="Relatorio de marco")
+
+    # Confira que o documento apareceu na lista
+    for anexo in api.listar_anexos(req_id):
+        print(f"{anexo['Id']}: {anexo['Titulo']} ({anexo['NomeDocumentoFisico']})")
 except FileNotFoundError as e:
     print(f"Arquivo nao encontrado: {e}")
 except BDeskApiError as e:
-    print(f"Tipo de arquivo nao permitido: {e}")
+    # Ex.: extensao nao permitida, usuario sem permissao de anexar neste status
+    print(f"Anexo nao vinculado: {e}")
+```
+
+**Passo a passo, com varios arquivos numa unica submissao:**
+
+```python
+arquivos = ["/caminho/para/a.pdf", "/caminho/para/b.png"]
+
+itens = []
+for caminho in arquivos:
+    guid = api.enviar_arquivo(req_id, caminho)            # etapa 1 (um upload por arquivo)
+    nome = os.path.basename(caminho)
+    itens.append({"Id": guid, "NomeDuranteUpload": nome, "Titulo": nome})
+
+api.submeter_anexos(req_id, itens)                        # etapa 2 (uma chamada para todos)
 ```
 
 ### Explorar o Catalogo
@@ -564,7 +651,8 @@ try:
     abertas = api.listar_abertas()
 
 except BDeskApiError as e:
-    # Erros de negocio: credenciais invalidas, acao nao permitida, campos obrigatorios, etc.
+    # Erros de negocio: login recusado, acao nao permitida, campos obrigatorios etc.
+    # Cobre HTTP 406 (texto puro) e HTTP 200 com MensagensErro.
     print(f"Erro de negocio: {e}")
     for msg in e.mensagens:
         print(f"  - {msg}")
@@ -576,6 +664,8 @@ except requests.exceptions.Timeout:
     print("Timeout na requisicao. Tente novamente.")
 
 except requests.exceptions.HTTPError as e:
+    # 401: token invalido ou usuario desativado (refaca o login)
+    # 404: rota inexistente ou parametro de query obrigatorio ausente
     print(f"Erro HTTP inesperado: {e.response.status_code} — {e.response.text}")
 ```
 
@@ -585,12 +675,16 @@ except requests.exceptions.HTTPError as e:
 
 | Metodo | Endpoint | Descricao |
 |--------|----------|-----------|
-| `listar_abertas(page, page_size)` | `GET /v1/requisicoes/abertas` | Lista requisicoes abertas paginadas |
+| `listar_abertas(limite, filtros)` | `GET` ou `POST /v1/requisicoes/abertas` | Lista requisicoes abertas (sem paginacao; limite padrao 500) |
 | `buscar_requisicao(req_id)` | `GET /v1/requisicoes/{id}` | Detalhes de uma requisicao |
-| `criar_requisicao(...)` | `POST /v1/requisicoes/abrir` | Abre nova requisicao; retorna ID (int) |
+| `criar_requisicao(...)` | `POST /v1/requisicoes/abrir` | Abre nova requisicao; retorna o numero (int) |
 | `listar_acoes(req_id)` | `GET /v1/requisicoes/{id}/acoes` | Lista acoes disponiveis |
+| `listar_destinos_direcionar(req_id)` | `GET /v1/requisicoes/{id}/acoes/DIR/grupos` | Destinos para a acao DIR |
 | `executar_acao(req_id, acao_id, ...)` | `POST /v1/requisicoes/{id}/acoes` | Executa acao de workflow |
-| `enviar_anexo(req_id, caminho)` | `POST /v1/requisicoes/{id}/anexo` | Upload de arquivo |
+| `enviar_arquivo(req_id, caminho)` | `POST /v1/requisicoes/{id}/anexo` | Anexo, etapa 1: upload (area temporaria) |
+| `submeter_anexos(req_id, anexos)` | `POST /v1/requisicoes/{id}/anexos/submeter` | Anexo, etapa 2: vincula a requisicao |
+| `enviar_anexo(req_id, caminho)` | as duas rotas acima | Faz as 2 etapas |
+| `listar_anexos(req_id)` | `GET /v1/requisicoes/{id}/anexos` | Anexos ja vinculados |
 | `listar_catalogo()` | `GET /v1/cardapio` | Areas e formularios do catalogo |
 | `buscar_formulario(id)` | `GET /v1/cardapio/formularios/{id}` | Campos de um formulario |
 | `pesquisar_participantes(fp_id, termo)` | `GET /v1/participantes/{id}/pesquisar/{termo}` | Busca participantes |

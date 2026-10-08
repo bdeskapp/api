@@ -10,7 +10,7 @@ Ao final deste guia voce sera capaz de:
 - Escolher o endpoint de abertura adequado para cada ferramenta de monitoramento.
 - Criar requisicoes automaticamente quando um alerta for disparado.
 - Atualizar uma requisicao existente quando o alerta for atualizado ou resolvido.
-- Implementar scripts Python e PowerShell prontos para producao com tratamento de erros.
+- Implementar scripts Python e PowerShell com tratamento de erros.
 
 ---
 
@@ -19,8 +19,9 @@ Ao final deste guia voce sera capaz de:
 Antes de comecar, voce precisa ter:
 
 - **Token de autenticacao valido** — veja [Autenticacao](../autenticacao.md) para obter o seu token.
-- **ID do formulario** que sera usado para os alertas — veja [Catalogo de Servicos](catalogo-servicos.md)
-  para identificar o formulario correto na sua instancia.
+- **Variante Zabbix configurada na sua instancia** (para o Metodo 1) ou o **ID do formulario** que sera
+  usado para os alertas (para o Metodo 2) — veja [Catalogo de Servicos](catalogo-servicos.md) para
+  identificar o formulario correto. Confirme com a equipe BDesk da sua empresa o que esta configurado.
 - Conhecimento basico da ferramenta de monitoramento que sera integrada (Zabbix, PRTG, Nagios, etc.).
 
 ---
@@ -48,8 +49,7 @@ A API BDesk oferece dois caminhos para criar requisicoes a partir de alertas de 
 
 | Metodo | Endpoint | Quando usar |
 |--------|----------|-------------|
-| Template Zabbix | `POST /v1/requisicoes/abrirFormatoZabbix` | Zabbix e ferramentas com payload dinamico similar |
-| Template Zabbix com variante | `POST /v1/requisicoes/abrirFormatoZabbix/{variante}` | Quando sua instancia possui templates especificos por tipo de incidente |
+| Template Zabbix | `POST /v1/requisicoes/abrirFormatoZabbix/{variante}` | Zabbix e ferramentas com payload dinamico similar. A `{variante}` e opcional |
 | Abertura Generica | `POST /v1/requisicoes/abrir` | PRTG, Nagios, Checkmk e qualquer outra ferramenta |
 
 ---
@@ -75,71 +75,31 @@ O payload varia conforme o metodo escolhido. Veja os detalhes nas secoes abaixo.
 
 ### Passo 4: Envie a requisicao e registre o ID retornado
 
-Apos criar a requisicao, armazene o ID retornado pela API. Voce vai precisar dele para atualizar ou
-encerrar a requisicao quando o alerta for resolvido.
+Apos criar a requisicao, armazene o ID retornado pela API (um numero inteiro). Voce vai precisar dele
+para atualizar ou encerrar a requisicao quando o alerta for resolvido.
 
 ---
 
 ## Metodo 1: Template Zabbix
 
-### POST /v1/requisicoes/abrirFormatoZabbix
-
-Este endpoint foi projetado para receber o payload dinamico no formato de macros do Zabbix. Ele
-interpreta automaticamente os campos do alerta e cria a requisicao com o formulario e as
-categorizacoes configuradas no template do BDesk.
-
-**Payload tipico enviado pelo Zabbix:**
-
-```json
-{
-  "host": "srv-app-01.empresa.com.br",
-  "hostip": "10.0.1.15",
-  "trigger": "Servidor indisponivel",
-  "triggerid": "12345",
-  "triggerurl": "https://zabbix.empresa.com.br/tr_events.php?triggerid=12345",
-  "severity": "High",
-  "status": "PROBLEM",
-  "eventid": "98765",
-  "eventdate": "2025-08-15",
-  "eventtime": "14:32:00",
-  "itemkey": "agent.ping",
-  "itemvalue": "0",
-  "description": "O host srv-app-01 nao esta respondendo ao agente Zabbix."
-}
-```
-
-**Exemplo com cURL:**
-
-```bash
-curl -s -X POST "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/abrirFormatoZabbix" \
-  -H "Authorization: Bearer SEU_TOKEN_AQUI" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "host": "srv-app-01.empresa.com.br",
-    "hostip": "10.0.1.15",
-    "trigger": "Servidor indisponivel",
-    "severity": "High",
-    "status": "PROBLEM",
-    "eventid": "98765",
-    "description": "O host srv-app-01 nao esta respondendo ao agente Zabbix."
-  }'
-```
-
----
-
 ### POST /v1/requisicoes/abrirFormatoZabbix/{variante}
 
-Use este endpoint quando sua instancia BDesk possui templates especificos por tipo de incidente.
-A `{variante}` identifica o template de formulario e as regras de categorização que serao aplicadas.
+Este e o endpoint unico para as integracoes no formato Zabbix. Cada **variante** (por exemplo,
+`RompimentoFibra`) e uma configuracao da sua instancia BDesk que define o formulario, as
+categorizacoes, os campos obrigatorios e as acoes automaticas daquele tipo de incidente. Nao existe
+uma rota separada por tipo de incidente: o tipo e sempre escolhido pelo ultimo segmento da URL.
 
-**Variantes comuns:**
+- Sem `{variante}` na URL (`POST /v1/requisicoes/abrirFormatoZabbix`), a variante usada e
+  `RompimentoFibra`.
+- Se a variante informada nao estiver configurada na sua instancia, a API responde HTTP 406.
+- Consulte a equipe BDesk da sua empresa para saber quais variantes estao configuradas.
 
-| Variante | Uso tipico |
-|----------|------------|
-| `RompimentoFibra` | Incidentes de link de fibra optica rompido |
-| `InvestigacaoSaturacao` | Alertas de saturacao de banda ou CPU |
-
-Consulte a equipe BDesk da sua empresa para saber quais variantes estao configuradas na sua instancia.
+**O payload depende da variante.** O corpo e um JSON livre cujos campos sao definidos pela
+configuracao da variante: ela diz quais campos sao obrigatorios e como cada um e usado para montar
+a requisicao. Se um campo obrigatorio faltar, a API responde 406 informando o nome do campo. Para a
+variante `RompimentoFibra`, por exemplo, o payload usa campos como `olt`, `hostName`, `problem_id`,
+`HorarioQueda` e `PosicoesAfetadas` (lista de `{ "Slot", "Pon" }`). Combine com a equipe BDesk o
+conjunto exato de campos da sua variante.
 
 **Exemplo com cURL:**
 
@@ -149,15 +109,40 @@ curl -s -X POST \
   -H "Authorization: Bearer SEU_TOKEN_AQUI" \
   -H "Content-Type: application/json" \
   -d '{
-    "host": "roteador-sp-01",
-    "hostip": "200.175.42.10",
-    "trigger": "Link de fibra DOWN",
-    "severity": "Disaster",
-    "status": "PROBLEM",
-    "eventid": "110022",
-    "description": "Interface GigabitEthernet0/1 sem link ha 3 minutos."
+    "olt": "OLT-01",
+    "hostName": "olt01",
+    "problem_id": "123",
+    "HorarioQueda": "2026-10-08 10:00:00",
+    "PosicoesAfetadas": [ { "Slot": "1", "Pon": "2" } ]
   }'
 ```
+
+**Resposta (HTTP 200):**
+
+```json
+{
+  "_metadata": {
+    "Release": "9.8.0",
+    "LogAmigavel": [],
+    "MensagensErro": []
+  },
+  "records": [
+    "222886"
+  ]
+}
+```
+
+O **primeiro item de `records` e o numero da requisicao criada** (em texto). Se a variante tiver
+acoes automaticas configuradas, os itens seguintes sao textos no formato `Retorno da acao <id>: ...`
+com o resultado de cada acao, e eventuais mensagens delas aparecem em `_metadata.MensagensErro`
+(mesmo com HTTP 200). Confira essa lista depois de cada chamada.
+
+**Acoes automaticas assincronas:** quando a variante esta configurada para executar as acoes em
+segundo plano, a resposta traz apenas o numero da requisicao e as acoes rodam depois. Nesse caso, o
+resultado das acoes nao aparece na resposta e uma falha delas nao chega ao seu script.
+
+**Erros:** campos obrigatorios ausentes, variante nao configurada e validacoes do formulario voltam
+como HTTP 406 com a mensagem em **texto puro** (nao e JSON).
 
 ---
 
@@ -168,31 +153,36 @@ proprios — use o endpoint padrao de abertura de requisicao.
 
 **Endpoint:** `POST /v1/requisicoes/abrir`
 
-Monte o payload mapeando os campos do alerta para os campos do BDesk:
+O corpo tem o numero do formulario em `Formulario` e os dados agrupados em `Conjuntos`. O assunto e a
+descricao ficam dentro do conjunto `DadosBasicos`. Monte o payload mapeando os campos do alerta para
+os campos do BDesk:
 
 | Campo do Alerta | Campo do BDesk | Observacao |
 |-----------------|---------------|------------|
-| Titulo do alerta | `Assunto` | Use um prefixo claro, ex.: `[PRTG] Sensor offline` |
-| Descricao detalhada | `Descricao` | Inclua host, IP, valor medido e horario do alerta |
+| Titulo do alerta | `Conjuntos.DadosBasicos.Assunto` | Use um prefixo claro, ex.: `[PRTG] Sensor offline` |
+| Descricao detalhada | `Conjuntos.DadosBasicos.Descricao` | Inclua host, IP, valor medido e horario do alerta |
 | Severidade | Definida pelo formulario | Mapeie severidades para prioridades via workflow |
-| ID do alerta externo | `Conjuntos` | Armazene em campo adicional para deduplicacao |
+| ID do alerta externo | Conjunto de dados adicionais do formulario | Armazene em campo adicional para deduplicacao |
+
+Veja o guia [Criar Requisicoes](criar-requisicoes.md) para os detalhes dos conjuntos aceitos pelo
+seu formulario (consulte-os em `GET /v1/cardapio/{id}`).
 
 **Payload para PRTG:**
 
 ```json
 {
   "Formulario": 456,
-  "Assunto": "[PRTG] Sensor offline: Ping - srv-db-02",
-  "Descricao": "Sensor: Ping\nHost: srv-db-02.empresa.com.br (10.0.2.30)\nStatus: Down\nHorario: 2025-08-15 14:35:00\nMensagem: Request timeout for icmp_seq 1",
   "Conjuntos": {
-    "DadosDoAlerta": {
-      "FerramentaOrigem": "PRTG",
-      "IdAlertaExterno": "sensor-4421",
-      "Severidade": "Error"
+    "DadosBasicos": {
+      "Assunto": "[PRTG] Sensor offline: Ping - srv-db-02",
+      "Descricao": "Sensor: Ping\nHost: srv-db-02.empresa.com.br (10.0.2.30)\nStatus: Down\nHorario: 2025-08-15 14:35:00\nMensagem: Request timeout for icmp_seq 1"
     }
   }
 }
 ```
+
+Se o seu formulario tiver conjuntos de dados adicionais (por exemplo, para guardar a ferramenta de
+origem e o ID do alerta externo), inclua-os em `Conjuntos` com os nomes definidos no formulario.
 
 **Exemplo com cURL:**
 
@@ -202,15 +192,19 @@ curl -s -X POST "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/abrir" 
   -H "Content-Type: application/json" \
   -d '{
     "Formulario": 456,
-    "Assunto": "[PRTG] Sensor offline: Ping - srv-db-02",
-    "Descricao": "Host: srv-db-02.empresa.com.br\nStatus: Down\nHorario: 2025-08-15 14:35:00"
+    "Conjuntos": {
+      "DadosBasicos": {
+        "Assunto": "[PRTG] Sensor offline: Ping - srv-db-02",
+        "Descricao": "Host: srv-db-02.empresa.com.br\nStatus: Down\nHorario: 2025-08-15 14:35:00"
+      }
+    }
   }'
 ```
 
-A resposta e o ID da requisicao criada, retornado como texto simples:
+A resposta e o numero da requisicao criada, como um texto JSON simples (sem envelope):
 
 ```
-"RQ-20250815-042"
+"222886"
 ```
 
 ---
@@ -222,18 +216,24 @@ resolvido — voce pode atualizar a requisicao correspondente no BDesk.
 
 **Endpoint:** `POST /v1/requisicoes/{id}/atualizarFormatoZabbix/{variante}`
 
-Substitua `{id}` pelo ID da requisicao retornado na abertura e `{variante}` pelo mesmo valor usado na
-abertura (ex.: `RompimentoFibra`).
+Substitua `{id}` pelo **numero inteiro** da requisicao retornado na abertura (por exemplo, `222886`;
+nao existe um id em outro formato).
 
-**Payload de atualizacao:**
+**A configuracao de atualizacao e separada da de abertura.** Para atualizar, a sua instancia precisa
+ter uma configuracao propria de atualizacao para a variante informada, alem da configuracao de
+abertura. Usar o mesmo nome de variante nao basta: se a configuracao de atualizacao nao existir, a
+API responde 406. Peca a equipe BDesk para confirmar que ela existe para a variante.
+
+**Payload de atualizacao:** tambem depende da variante. Os campos mais comuns sao `PosicoesAfetadas`
+(lista de `{ "Slot", "Pon" }`), `novasONUs`, `olt` e `qtd_afetado`. Informe sempre `qtd_afetado`
+(numero): sem ele, a atualizacao pode falhar com HTTP 500.
 
 ```json
 {
-  "host": "roteador-sp-01",
-  "trigger": "Link de fibra DOWN",
-  "status": "RESOLVED",
-  "eventid": "110022",
-  "description": "Interface GigabitEthernet0/1 restaurada. Link UP confirmado."
+  "olt": "OLT-01",
+  "PosicoesAfetadas": [ { "Slot": "1", "Pon": "2" } ],
+  "novasONUs": "ONU-0042, ONU-0043",
+  "qtd_afetado": 2
 }
 ```
 
@@ -241,17 +241,32 @@ abertura (ex.: `RompimentoFibra`).
 
 ```bash
 curl -s -X POST \
-  "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/RQ-20250815-042/atualizarFormatoZabbix/RompimentoFibra" \
+  "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/222886/atualizarFormatoZabbix/RompimentoFibra" \
   -H "Authorization: Bearer SEU_TOKEN_AQUI" \
   -H "Content-Type: application/json" \
   -d '{
-    "host": "roteador-sp-01",
-    "trigger": "Link de fibra DOWN",
-    "status": "RESOLVED",
-    "eventid": "110022",
-    "description": "Interface restaurada. Link UP confirmado."
+    "olt": "OLT-01",
+    "PosicoesAfetadas": [ { "Slot": "1", "Pon": "2" } ],
+    "novasONUs": "ONU-0042, ONU-0043",
+    "qtd_afetado": 2
   }'
 ```
+
+**Resposta (HTTP 200):**
+
+```json
+{
+  "_metadata": { "Release": "9.8.0", "LogAmigavel": [], "MensagensErro": [] },
+  "records": [
+    "Retorno da acao X: ..."
+  ]
+}
+```
+
+`records` e uma lista de textos, um por acao executada. **Uma acao que falha nao gera erro HTTP:** a
+resposta continua 200 e a mensagem aparece em `records` ou em `_metadata.MensagensErro`. Por isso,
+sempre leia as duas listas depois de atualizar. Erros como falta de acesso a requisicao, JSON
+invalido ou configuracao de atualizacao inexistente voltam como HTTP 406 com texto puro.
 
 ---
 
@@ -261,7 +276,6 @@ curl -s -X POST \
 
 ```python
 import os
-import json
 import logging
 import requests
 
@@ -279,7 +293,7 @@ logger = logging.getLogger(__name__)
 def abrir_requisicao_zabbix(dados_alerta, variante=None):
     """
     Cria uma requisicao no BDesk a partir de um alerta do Zabbix.
-    Retorna o ID da requisicao criada, ou None em caso de falha.
+    Retorna o numero da requisicao criada (texto), ou None em caso de falha.
     """
     headers = {
         "Authorization": f"Bearer {TOKEN}",
@@ -294,10 +308,20 @@ def abrir_requisicao_zabbix(dados_alerta, variante=None):
     try:
         resp = requests.post(url, json=dados_alerta, headers=headers, timeout=15)
         resp.raise_for_status()
-        id_requisicao = resp.json() if resp.headers.get("Content-Type", "").startswith("application/json") else resp.text.strip('"')
+        corpo = resp.json()
+        # Mensagens de erro de acoes automaticas chegam com HTTP 200
+        erros = corpo["_metadata"]["MensagensErro"]
+        if erros:
+            logger.warning("Avisos da abertura: %s", erros)
+        records = corpo["records"]
+        if not records:
+            logger.error("Resposta sem o numero da requisicao")
+            return None
+        id_requisicao = records[0]   # primeiro item = numero da requisicao
         logger.info("Requisicao criada: %s", id_requisicao)
         return id_requisicao
     except requests.exceptions.HTTPError as e:
+        # 406: a mensagem vem em texto puro
         logger.error("Erro HTTP ao criar requisicao: %s — %s", e.response.status_code, e.response.text)
     except requests.exceptions.ConnectionError:
         logger.error("Nao foi possivel conectar ao BDesk em %s", BASE_URL)
@@ -319,7 +343,13 @@ def atualizar_requisicao_zabbix(id_requisicao, dados_alerta, variante):
     try:
         resp = requests.post(url, json=dados_alerta, headers=headers, timeout=15)
         resp.raise_for_status()
-        logger.info("Requisicao %s atualizada com sucesso", id_requisicao)
+        corpo = resp.json()
+        # Falhas de acoes individuais chegam com HTTP 200
+        erros = corpo["_metadata"]["MensagensErro"]
+        if erros:
+            logger.warning("Requisicao %s atualizada com avisos: %s", id_requisicao, erros)
+            return False
+        logger.info("Requisicao %s atualizada: %s", id_requisicao, corpo["records"])
         return True
     except requests.exceptions.HTTPError as e:
         logger.error("Erro HTTP ao atualizar requisicao: %s — %s", e.response.status_code, e.response.text)
@@ -331,21 +361,18 @@ def atualizar_requisicao_zabbix(id_requisicao, dados_alerta, variante):
 # --- Ponto de entrada: simula disparo do Zabbix ---
 if __name__ == "__main__":
     alerta = {
-        "host":        "srv-app-01.empresa.com.br",
-        "hostip":      "10.0.1.15",
-        "trigger":     "Servidor indisponivel",
-        "triggerid":   "12345",
-        "severity":    "High",
-        "status":      "PROBLEM",
-        "eventid":     "98765",
-        "description": "O host srv-app-01 nao esta respondendo ao agente Zabbix."
+        "olt":              "OLT-01",
+        "hostName":         "olt01",
+        "problem_id":       "123",
+        "HorarioQueda":     "2026-10-08 10:00:00",
+        "PosicoesAfetadas": [{"Slot": "1", "Pon": "2"}]
     }
 
-    id_req = abrir_requisicao_zabbix(alerta, variante="InvestigacaoSaturacao")
+    id_req = abrir_requisicao_zabbix(alerta, variante="RompimentoFibra")
 
     if id_req:
         # Persistir id_req no seu sistema para uso posterior (ex.: banco, arquivo)
-        logger.info("Salvar mapeamento: eventid=%s -> requisicao=%s", alerta["eventid"], id_req)
+        logger.info("Salvar mapeamento: problem_id=%s -> requisicao=%s", alerta["problem_id"], id_req)
 ```
 
 ---
@@ -354,14 +381,11 @@ if __name__ == "__main__":
 
 ```powershell
 param(
-    [string]$Host         = "srv-app-01.empresa.com.br",
-    [string]$HostIp       = "10.0.1.15",
-    [string]$Trigger      = "Servidor indisponivel",
-    [string]$Severity     = "High",
-    [string]$Status       = "PROBLEM",
-    [string]$EventId      = "98765",
-    [string]$Description  = "O host nao esta respondendo ao agente Zabbix.",
-    [string]$Variante     = "",
+    [string]$Olt          = "OLT-01",
+    [string]$HostName     = "olt01",
+    [string]$ProblemId    = "123",
+    [string]$HorarioQueda = "2026-10-08 10:00:00",
+    [string]$Variante     = "RompimentoFibra",
     [string]$RequisicaoId = ""
 )
 
@@ -378,32 +402,38 @@ $Headers = @{
     "Content-Type" = "application/json"
 }
 
-$Payload = @{
-    host        = $Host
-    hostip      = $HostIp
-    trigger     = $Trigger
-    severity    = $Severity
-    status      = $Status
-    eventid     = $EventId
-    description = $Description
-} | ConvertTo-Json
-
 try {
     if ($RequisicaoId) {
-        # Atualizar requisicao existente
+        # Atualizar requisicao existente (RequisicaoId e o numero inteiro retornado na abertura)
+        $Payload = @{
+            olt              = $Olt
+            PosicoesAfetadas = @(@{ Slot = "1"; Pon = "2" })
+            novasONUs        = "ONU-0042"
+            qtd_afetado      = 1
+        } | ConvertTo-Json -Depth 5
         $Url = "$BaseUrl/v1/requisicoes/$RequisicaoId/atualizarFormatoZabbix/$Variante"
         $Resp = Invoke-RestMethod -Uri $Url -Method Post -Headers $Headers -Body $Payload -ContentType "application/json"
-        Write-Host "Requisicao $RequisicaoId atualizada com sucesso."
-    } elseif ($Variante) {
-        # Abrir com variante
-        $Url = "$BaseUrl/v1/requisicoes/abrirFormatoZabbix/$Variante"
-        $IdRequisicao = Invoke-RestMethod -Uri $Url -Method Post -Headers $Headers -Body $Payload -ContentType "application/json"
-        Write-Host "Requisicao criada: $IdRequisicao"
+        # Falhas de acoes individuais chegam com HTTP 200
+        if ($Resp._metadata.MensagensErro.Count -gt 0) {
+            Write-Warning ("Atualizada com avisos: " + ($Resp._metadata.MensagensErro -join "; "))
+        } else {
+            Write-Host "Requisicao $RequisicaoId atualizada com sucesso."
+        }
     } else {
-        # Abrir formato padrao
-        $Url = "$BaseUrl/v1/requisicoes/abrirFormatoZabbix"
-        $IdRequisicao = Invoke-RestMethod -Uri $Url -Method Post -Headers $Headers -Body $Payload -ContentType "application/json"
-        Write-Host "Requisicao criada: $IdRequisicao"
+        # Abrir requisicao
+        $Payload = @{
+            olt              = $Olt
+            hostName         = $HostName
+            problem_id       = $ProblemId
+            HorarioQueda     = $HorarioQueda
+            PosicoesAfetadas = @(@{ Slot = "1"; Pon = "2" })
+        } | ConvertTo-Json -Depth 5
+        $Url = "$BaseUrl/v1/requisicoes/abrirFormatoZabbix/$Variante"
+        $Resp = Invoke-RestMethod -Uri $Url -Method Post -Headers $Headers -Body $Payload -ContentType "application/json"
+        if ($Resp._metadata.MensagensErro.Count -gt 0) {
+            Write-Warning ("Avisos da abertura: " + ($Resp._metadata.MensagensErro -join "; "))
+        }
+        Write-Host "Requisicao criada: $($Resp.records[0])"
     }
 } catch {
     $StatusCode = $_.Exception.Response.StatusCode.value__
@@ -419,14 +449,14 @@ try {
 ### Deduplicacao de Alertas
 
 Antes de criar uma nova requisicao, verifique se ja existe uma requisicao aberta para o mesmo alerta.
-Armazene o mapeamento `eventid → RequisicaoId` no banco de dados ou em um arquivo de estado local.
-Se o mapeamento existir e a requisicao ainda estiver aberta, use o endpoint de atualizacao em vez
-de criar uma nova.
+Armazene o mapeamento `ID do evento → numero da requisicao` no banco de dados ou em um arquivo de
+estado local. Se o mapeamento existir e a requisicao ainda estiver aberta, use o endpoint de
+atualizacao em vez de criar uma nova.
 
 ### Mapeamento de Severidade para Prioridade
 
 Configure no BDesk um campo ou regra de workflow que mapeie a severidade do alerta para a prioridade
-interna. Uma sugestao de mapeamento:
+interna. Uma sugestao de mapeamento (a prioridade tem tres niveis: 1 Alta, 2 Media, 3 Baixa):
 
 | Severidade Zabbix | Prioridade BDesk |
 |-------------------|-----------------|
@@ -435,25 +465,27 @@ interna. Uma sugestao de mapeamento:
 | Warning           | Media           |
 | Average           | Media           |
 | High              | Alta            |
-| Disaster          | Critica         |
+| Disaster          | Alta            |
 
 Discuta o mapeamento com a equipe responsavel pelas categorias do BDesk antes de colocar em producao.
 
 ### Categorizacao Correta
 
-Escolha o formulario (campo `Formulario`) e a variante mais especifica para cada tipo de alerta.
-Formularios genericos resultam em triagem manual desnecessaria e SLA incorreto.
+Use a variante (Metodo 1) ou o formulario (Metodo 2) mais especifico para cada tipo de alerta.
+Configuracoes genericas resultam em triagem manual desnecessaria e SLA incorreto.
 
 ### Logging
 
-Registre em log ao menos: o ID do evento externo, o ID da requisicao criada, o timestamp e o status
-da chamada (sucesso ou codigo de erro). Isso facilita auditoria e resolucao de falhas de integracao.
+Registre em log ao menos: o ID do evento externo, o numero da requisicao criada, o timestamp e o
+status da chamada (sucesso ou codigo de erro), alem das mensagens de `_metadata.MensagensErro`.
+Isso facilita auditoria e resolucao de falhas de integracao.
 
 ### Timeout e Retry
 
 Configure timeout de no maximo 15 segundos nas chamadas HTTP. Implemente no maximo 3 tentativas com
-intervalo exponencial (ex.: 5s, 15s, 45s) antes de abandonar e registrar o erro. Alertas que falham
-repetidamente devem gerar notificacao para o administrador da integracao.
+intervalo exponencial (ex.: 5s, 15s, 45s) antes de abandonar e registrar o erro. Cuidado com tentativas
+repetidas depois de um timeout: a requisicao pode ter sido criada mesmo assim, o que gera duplicidade.
+Alertas que falham repetidamente devem gerar notificacao para o administrador da integracao.
 
 ### Segredos
 

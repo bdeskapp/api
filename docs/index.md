@@ -23,8 +23,8 @@ A API REST do BDesk permite automatizar operacoes da plataforma diretamente dos 
 
 ## Referencia
 
-- [referencia/erros.md](referencia/erros.md) — Codigos de erro e troubleshooting
-- [referencia/paginacao.md](referencia/paginacao.md) — Paginacao
+- [referencia/erros.md](referencia/erros.md) — Os dois padroes de erro (HTTP 406 e HTTP 200 com `MensagensErro`) e troubleshooting
+- [referencia/paginacao.md](referencia/paginacao.md) — Paginacao e limites (a API nao pagina; limites por endpoint)
 - [referencia/glossario.md](referencia/glossario.md) — Glossario de termos BDesk
 - [referencia/limites.md](referencia/limites.md) — Limites da API
 
@@ -40,7 +40,7 @@ A API REST do BDesk permite automatizar operacoes da plataforma diretamente dos 
 
 ## Referencia Completa de Endpoints
 
-Consulte a <a href="redoc.html" target="_blank">Referencia de Endpoints</a> para navegar todas as 73 operacoes com exemplos de requisicao e resposta (abre em nova aba).
+Consulte a <a href="redoc.html" target="_blank">Referencia de Endpoints</a> para navegar todas as 68 operacoes com exemplos de requisicao e resposta (abre em nova aba).
 
 ---
 

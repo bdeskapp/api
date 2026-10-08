@@ -37,9 +37,10 @@ Pushing to `main` triggers `.github/workflows/deploy-docs.yml`, a two-job pipeli
   - `docs/guias/` — How-to guides (creating requests, attachments, workflow actions, etc.)
   - `docs/referencia/` — Reference docs (errors, pagination, glossary, limits, endpoints)
   - `docs/exemplos/` — Code examples (cURL, Python, PowerShell)
-- `docs/openapi.yaml` — OpenAPI 3.1.0 spec (73 operations across 66 endpoints), served as a downloadable asset and rendered via Redoc
+- `docs/openapi.yaml` — OpenAPI 3.1.0 spec (68 operations across 61 endpoints), served as a downloadable asset and rendered via Redoc
 - `docs/redoc.html` — Standalone HTML page that renders the OpenAPI spec using Redoc CDN (not managed by MkDocs)
 - `docs/postman_collection.json` — Postman collection for the API
+- Espelho do `docs/ASKREST` do repo bdesk: guias/exemplos/referência copiados de `docs/ASKREST/user-guide/`, e `openapi.yaml`/Postman gerados do ASKREST sem as operações `x-bdesk-interno`. Não edite aqui sem editar lá.
 - `site/` — Built output (gitignored — do not edit directly)
 
 ## Key Conventions

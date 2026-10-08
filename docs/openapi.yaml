@@ -11,19 +11,23 @@ info:
     * **Requisições**: Abrir, consultar, filtrar e executar ações em requisições de serviço
     * **Itens de Configuração (ICs)**: Consultar ativos, componentes, associações e listas de papéis
     * **Catálogo de Serviços**: Navegar formulários, atividades e itens de seleção
-    * **Autenticação**: Autenticação via bearer token (JWT)
+    * **Autenticação**: Autenticação via bearer token
 
     ## Autenticação
 
-    Todos os endpoints (exceto login) requerem autenticação via bearer token.
-    O token é obtido via `POST /v1/login/entrar`.
+    Todos os endpoints (exceto login) requerem autenticação via bearer token no cabeçalho
+    `Authorization: Bearer <access_token>`. O token é obtido via `POST /v1/login/entrar`.
+
+    O servidor **não expira** o bearer token: ele vale enquanto o usuário estiver ativo. Cabeçalho
+    ausente, esquema diferente de Bearer, token desconhecido ou usuário inativo resultam em
+    HTTP 401 sem corpo. O campo `expires_in` devolvido no login é apenas informativo.
 
     > **Atenção:** O endpoint de login retorna `RetornoApi<T>` (não `RetornoApiRest<T>`).
     > O campo `Dados` contém uma **string JSON escapada** — é necessário fazer `JSON.parse(response.Dados)` para extrair o token.
 
     ## Formato de Resposta
 
-    A maioria dos endpoints usa o envelope `RetornoApiRest<T>`:
+    Muitos endpoints usam o envelope `RetornoApiRest<T>`:
     ```json
     {
       "_metadata": { "Release": "...", "MensagensErro": [], "LogAmigavel": [] },
@@ -31,7 +35,29 @@ info:
     }
     ```
 
-    Erros de negócio retornam HTTP **406** com `_metadata.MensagensErro` preenchido.
+    Nem todos os endpoints usam esse envelope: vários devolvem um array, um objeto, uma string
+    ou um arquivo cru, e alguns envelopes trazem um `_metadata` parcial (sem `Release`, ou vazio).
+    O formato exato de cada operação está descrito na própria operação.
+
+    ## Erros de negócio
+
+    Os erros de negócio **não** seguem um padrão único. Há dois comportamentos e o cliente deve
+    tratar os dois:
+
+    1. **HTTP 406 com corpo em texto puro.** Quando o método chama `LevantarExcessaoSeHouverMensagensErro()`,
+       a resposta é HTTP 406 (`ReasonPhrase` "Critical Exception") e o corpo é `text/plain`, com as
+       mensagens separadas por quebra de linha. O corpo **não é JSON** e não tem `_metadata`.
+    2. **HTTP 200 com a mensagem no corpo.** Em vários endpoints o erro volta com status 200 e o
+       cliente só descobre a falha lendo o corpo: `login/entrar` e `login/EntrarApp`
+       (`MensagensErro` preenchido e `Dados` nulo), `GET requisicoes/{requisicao}`
+       (`MensagensErro` preenchido e `Conjuntos` nulo), `POST requisicoes/{requisicao}/acoes`
+       (`_metadata.MensagensErro`), `POST requisicoes/responderpesquisasatisfacao`
+       (string que começa com `erro:`), entre outros. Cada operação diz qual dos dois vale para ela.
+
+    Outros status relevantes: HTTP 401 (sem token válido), HTTP 404, que tende a ocorrer quando um
+    parâmetro de query obrigatório, sem valor padrão, é omitido (seleção de ação do Web API, "No
+    action was found", antes de o código rodar; não verificado em execução) e HTTP 500 em exceção
+    não tratada.
   version: 2.0.0
   contact:
     email: suporte@bdesk.com.br
@@ -43,18 +69,18 @@ servers:
     description: Produção
     variables:
       cliente:
-        default: herocorp
+        default: sua-empresa
         description: Subdomínio do cliente
   - url: https://{cliente}.bdesk.com.br/askrest-qa
     description: QA / Homologação
     variables:
       cliente:
-        default: herocorp
+        default: sua-empresa
   - url: https://{cliente}.bdesk.com.br/askrest-dev
     description: Desenvolvimento
     variables:
       cliente:
-        default: herocorp
+        default: sua-empresa
   - url: http://localhost:{porta}/api
     description: Desenvolvimento local
     variables:
@@ -66,7 +92,7 @@ security:
 
 tags:
   - name: Usuários e Autenticação
-    description: Login, dados do usuário autenticado e licenciamento
+    description: Login, dados do usuário autenticado
   - name: Requisições
     description: Abertura, consulta, ações, histórico e anexos de requisições
   - name: Catálogo
@@ -89,11 +115,23 @@ paths:
       tags: [Usuários e Autenticação]
       summary: Autenticar usuário
       description: |
-        Autentica um usuário e retorna um bearer token.
+        Autentica um usuário com login e senha nativos e retorna um bearer token.
 
         > **Atenção:** Este endpoint usa `RetornoApi<T>` (não `RetornoApiRest<T>`).
         > O campo `Dados` contém uma **string JSON escapada**. É necessário fazer
         > `JSON.parse(response.Dados)` para extrair o objeto com `access_token`.
+
+        **Falhas de login não usam 406.** Toda falha volta com **HTTP 200**, `Dados` nulo e a
+        mensagem em `MensagensErro`. O cliente deve checar `MensagensErro` (ou `Dados == null`)
+        antes de tentar ler o token. Casos: ambiente sem login nativo habilitado, licença
+        inválida, login ou senha incorretos, usuário de sistema (id 1), captcha ativo no
+        ambiente (o parâmetro `USAR_CAPTCHA` torna este endpoint inutilizável) e qualquer
+        `Dominio` preenchido ("Não é possível efetuar login na APIRest com esse tipo de
+        usuário"). Na prática, só login nativo (`Dominio` vazio) emite token.
+
+        O servidor **não aplica expiração** ao bearer: o token vale enquanto o usuário estiver
+        ativo. O `expires_in` do token é um carimbo Unix absoluto (segundos desde 1970 UTC,
+        em string) apenas informativo. Usuário inativo recebe 401 nas chamadas seguintes.
       operationId: entrar
       security: []
       x-source-controller: LoginController.Entrar
@@ -105,30 +143,44 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Autenticação bem-sucedida
+          description: |
+            Resposta do login. Em sucesso, `Dados` é uma string JSON com o token e
+            `MensagensErro` é vazio. Em falha, `Dados` é nulo e `MensagensErro` traz o motivo
+            (o status continua 200).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetornoApiLogin'
-              example:
-                Dados: '"{\"access_token\":\"eyJhbGci...\"}"'
-                LogAmigavel: []
-                MensagensErro: []
-                Versao: "9.8.0"
-        '406':
-          description: Erro de negócio (credenciais inválidas, usuário bloqueado)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiLogin'
+              examples:
+                sucesso:
+                  summary: Login bem-sucedido
+                  value:
+                    Dados: '{"access_token":"eyJhbGci...","token_type":"bearer","expires_in":"1799999999","refresh_token":null,"scope":"admin","error":null}'
+                    LogAmigavel: []
+                    MensagensErro: []
+                    Versao: null
+                falha:
+                  summary: Credenciais inválidas (HTTP 200, sem token)
+                  value:
+                    Dados: null
+                    LogAmigavel: []
+                    MensagensErro: ["Login ou senha incorretos"]
+                    Versao: null
 
   /v1/login/EntrarApp:
     post:
       tags: [Usuários e Autenticação]
-      summary: Autenticar via app mobile
+      summary: Autenticar via app (token temporário)
       description: |
-        Autentica usando um token temporário obtido via autenticação mobile.
-        Valida o token temporário via SHA256 e gera um bearer token permanente.
+        Troca um token temporário (emitido pelo portal MVC, válido por 10 minutos e de uso
+        único) por um bearer token. O token temporário é apagado antes de o bearer ser emitido.
+
+        Aqui `Dados` é um **objeto** de verdade (`{"access_token": "..."}`), diferente de
+        `login/entrar`, em que `Dados` é uma string JSON.
+
+        **Falhas não usam 406.** Toda falha volta com **HTTP 200**, `Dados` nulo e a mensagem em
+        `MensagensErro`: JSON inválido, "Token inválido ou expirado" (token desconhecido, de outro
+        tipo ou vencido) e "Token inválido". O servidor não aplica expiração ao bearer emitido.
       operationId: entrarApp
       security: []
       x-source-controller: LoginController.EntrarApp
@@ -142,23 +194,77 @@ paths:
               properties:
                 access_token:
                   type: string
-                  description: Token temporário obtido via autenticação mobile
+                  description: Token temporário emitido pelo portal MVC
       responses:
         '200':
-          description: Token validado e novo bearer token gerado
+          description: |
+            Bearer token emitido (`Dados.access_token`) ou falha (`Dados` nulo e
+            `MensagensErro` preenchido, com o mesmo status 200).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetornoApiObject'
+              examples:
+                sucesso:
+                  summary: Token trocado
+                  value:
+                    Dados: { access_token: "eyJhbGci..." }
+                    LogAmigavel: []
+                    MensagensErro: []
+                    Versao: "9.8.0"
+                falha:
+                  summary: Token temporário vencido (HTTP 200, sem token)
+                  value:
+                    Dados: null
+                    LogAmigavel: []
+                    MensagensErro: ["Token inválido ou expirado"]
+                    Versao: "9.8.0"
+
+  /v1/usuarios/alterar-senha:
+    post:
+      tags: [Usuários e Autenticação]
+      summary: Alterar a senha do usuário autenticado
+      description: |
+        Altera a senha do usuário dono do token. A senha atual é validada contra o login do
+        usuário, então só vale para usuários de **login nativo** (banco). A regra de força da nova
+        senha vem do parâmetro avançado `REGRA_FORTE_SENHA_BANCO`.
+
+        Erros de negócio voltam como **HTTP 406 em texto puro**, uma mensagem por linha:
+        "Dados não informados", "Usuário não encontrado", "Senha atual incorreta", cada razão de
+        senha fraca e falhas ao gravar.
+      operationId: alterarSenha
+      x-source-controller: UsuariosController.AlterarSenha
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlterarSenhaApiVM'
+      responses:
+        '200':
+          description: Senha alterada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestSucesso'
+              example:
+                _metadata: { Release: "9.8.0", LogAmigavel: [], MensagensErro: [] }
+                records:
+                  - Sucesso: true
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/usuarios/me:
     get:
       tags: [Usuários e Autenticação]
       summary: Dados básicos do usuário autenticado
       description: |
-        Retorna dados básicos do usuário autenticado (id, login, nome).
+        Retorna dados básicos do usuário autenticado (login, id, nome).
 
-        > **Nota:** Este endpoint retorna um objeto direto (sem envelope `RetornoApiRest`).
+        > **Nota:** Este endpoint retorna um objeto direto (sem envelope `RetornoApiRest`) e
+        > os nomes dos campos são PascalCase (`Login`, `Id`, `Nome`).
       operationId: dadosUsuarioAutenticado
       x-source-controller: UsuariosController.DadosUsuarioAutenticado
       responses:
@@ -168,6 +274,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UsuarioVM'
+              example:
+                Login: "joao.silva"
+                Id: 123
+                Nome: "João Silva"
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -175,58 +285,23 @@ paths:
     get:
       tags: [Usuários e Autenticação]
       summary: Perfil detalhado do usuário autenticado
-      description: Retorna perfil completo com empresa, cargo, superiores hierárquicos e dados de contato.
+      description: |
+        Retorna perfil completo com empresa, cargo, superiores hierárquicos e dados de contato.
+        Os campos opcionais voltam `null`.
+
+        Se o usuário do token não for encontrado, a resposta é **HTTP 200** com `records` vazio e
+        a mensagem "Usuário não encontrado" em `_metadata.MensagensErro` (sem 406).
       operationId: detalhesDadosUsuarioAutenticado
       x-source-controller: UsuariosController.DetalhesDadosUsuarioAutenticado
       responses:
         '200':
-          description: Perfil detalhado
+          description: Perfil detalhado (um único record)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetornoApiRestPerfilUsuario'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
-
-  /v1/usuarios/licenca:
-    get:
-      tags: [Usuários e Autenticação]
-      summary: Obter licença (GET — redirecionamento)
-      description: |
-        Este endpoint GET é intencionalmente desabilitado. Retorna uma mensagem
-        orientando o uso do método POST. Oculto do Swagger.
-      operationId: obterLicencaGet
-      x-source-controller: UsuariosController.ObterLicencaGet
-      responses:
-        '200':
-          description: Mensagem de redirecionamento para POST
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestString'
-    post:
-      tags: [Usuários e Autenticação]
-      summary: Gerar/validar licença
-      description: |
-        Gera ou valida uma licença do sistema BDesk. Oculto do Swagger.
-        Requer que a empresa de instalação seja válida.
-      operationId: obterLicenca
-      x-source-controller: UsuariosController.ObterLicenca
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DadosLicencaVM'
-      responses:
-        '200':
-          description: Licença gerada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestString'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
 
   # --------------------------------------------------------------------------
   # Requisições — RequisicoesController
@@ -236,7 +311,13 @@ paths:
     get:
       tags: [Requisições]
       summary: Dashboard de requisições
-      description: Retorna contadores de requisições abertas e encerradas com URLs de navegação.
+      description: |
+        Retorna contadores de requisições abertas e encerradas com URLs de navegação.
+
+        Atenção: os contadores `Abertas` e `Encerradas` são o **total do ambiente (tenant)**, sem
+        filtro pelo usuário autenticado. A resposta é um objeto cru, sem `_metadata`.
+        O código tem duas ações (`Dashboard` e `Painel`) nesta mesma URL, com corpo idêntico; para o
+        cliente é um único endpoint.
       operationId: dashboard
       x-source-controller: RequisicoesController.Dashboard
       responses:
@@ -246,6 +327,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DashboardResponse'
+              example:
+                Abertas: 1523
+                Encerradas: 88211
+                UrlRequisicoesAbertas: "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/abertas"
+                UrlRequisicoesEncerradas: "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/encerradas"
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -253,12 +339,33 @@ paths:
     get:
       tags: [Requisições]
       summary: Listar requisições abertas
-      description: Retorna lista paginada de requisições abertas com filtros via query string.
+      description: |
+        Retorna as requisições abertas a que o usuário tem acesso, filtradas pelos parâmetros de
+        query (os mesmos campos de `FiltrosRequisicoes`, sem prefixo).
+
+        **Não há paginação.** Não existem `pageSize`, `pageNumber` nem `_metadata.Pagination`. O
+        único limitador é `LimiteRequisicoes` (padrão **500**, vira `SELECT TOP n`). O filtro
+        `DadosAdicionais` só é prático via `POST`. Lista vazia é HTTP 200 com `records: []`.
+
+        O `_metadata` desta resposta tem apenas `MensagensErro` e `LogAmigavel` (sem `Release`).
+        `DescricaoRequisicao` pode vir com entidades HTML (`&#231;`); decodifique no cliente.
       operationId: requisicoesAbertas
       x-source-controller: RequisicoesController.RequisicoesAbertas
       parameters:
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/FiltroRequisicaoId'
+        - $ref: '#/components/parameters/FiltroAtividadeId'
+        - $ref: '#/components/parameters/FiltroAtividadesIds'
+        - $ref: '#/components/parameters/FiltroNomeAtividade'
+        - $ref: '#/components/parameters/FiltroNomeFormulario'
+        - $ref: '#/components/parameters/FiltroDescricoesStatus'
+        - $ref: '#/components/parameters/FiltroGruposSolucionadores'
+        - $ref: '#/components/parameters/FiltroIdsFormularios'
+        - $ref: '#/components/parameters/FiltroAssunto'
+        - $ref: '#/components/parameters/FiltroAbertoEntreInicio'
+        - $ref: '#/components/parameters/FiltroAbertoEntreFim'
+        - $ref: '#/components/parameters/FiltroEncerradoEntreInicio'
+        - $ref: '#/components/parameters/FiltroEncerradoEntreFim'
+        - $ref: '#/components/parameters/FiltroLimiteRequisicoes'
       responses:
         '200':
           description: Lista de requisições abertas
@@ -266,12 +373,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetornoApiRestRequisicoes'
+              example:
+                _metadata: { MensagensErro: [], LogAmigavel: [] }
+                records:
+                  - RequisicaoId: 222885
+                    Assunto: "Teste"
+                    Status: "Aberta"
+                    UrlDetalhesRequisicao: "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/222885"
         '401':
           $ref: '#/components/responses/NaoAutorizado'
     post:
       tags: [Requisições]
       summary: Listar requisições abertas (filtro POST)
-      description: Variante POST para filtros avançados no corpo da requisição.
+      description: |
+        Variante POST com os filtros no corpo (inclui `DadosAdicionais`). Resposta igual à do GET.
+        Sem paginação: o limitador é `LimiteRequisicoes` (padrão 500). O corpo `{}` é válido.
+
+        JSON malformado resulta em HTTP 406 em texto puro. Corpo literal `null` resulta em
+        HTTP 500 (NullReferenceException).
       operationId: requisicoesAbertasPost
       x-source-controller: RequisicoesController.RequisicoesAbertasPost
       requestBody:
@@ -280,6 +399,10 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/FiltrosRequisicoes'
+            example:
+              DescricoesStatus: ["Aberta"]
+              LimiteRequisicoes: 50
+              AbertoEntre: { Inicio: "2026-01-01T00:00:00", Fim: "2026-01-31T23:59:59" }
       responses:
         '200':
           description: Lista de requisições abertas filtradas
@@ -289,17 +412,35 @@ paths:
                 $ref: '#/components/schemas/RetornoApiRestRequisicoes'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/encerradas:
     get:
       tags: [Requisições]
       summary: Listar requisições encerradas
-      description: Retorna lista paginada de requisições encerradas.
+      description: |
+        Retorna as requisições encerradas a que o usuário tem acesso. Aceita os mesmos parâmetros
+        de `GET /v1/requisicoes/abertas`; `EncerradoEntre` só faz sentido aqui.
+
+        **Não há paginação**: o limitador é `LimiteRequisicoes` (padrão 500).
       operationId: requisicoesEncerradas
       x-source-controller: RequisicoesController.RequisicoesEncerradas
       parameters:
-        - $ref: '#/components/parameters/PageSize'
-        - $ref: '#/components/parameters/PageNumber'
+        - $ref: '#/components/parameters/FiltroRequisicaoId'
+        - $ref: '#/components/parameters/FiltroAtividadeId'
+        - $ref: '#/components/parameters/FiltroAtividadesIds'
+        - $ref: '#/components/parameters/FiltroNomeAtividade'
+        - $ref: '#/components/parameters/FiltroNomeFormulario'
+        - $ref: '#/components/parameters/FiltroDescricoesStatus'
+        - $ref: '#/components/parameters/FiltroGruposSolucionadores'
+        - $ref: '#/components/parameters/FiltroIdsFormularios'
+        - $ref: '#/components/parameters/FiltroAssunto'
+        - $ref: '#/components/parameters/FiltroAbertoEntreInicio'
+        - $ref: '#/components/parameters/FiltroAbertoEntreFim'
+        - $ref: '#/components/parameters/FiltroEncerradoEntreInicio'
+        - $ref: '#/components/parameters/FiltroEncerradoEntreFim'
+        - $ref: '#/components/parameters/FiltroLimiteRequisicoes'
       responses:
         '200':
           description: Lista de requisições encerradas
@@ -312,7 +453,9 @@ paths:
     post:
       tags: [Requisições]
       summary: Listar requisições encerradas (filtro POST)
-      description: Variante POST para filtros avançados.
+      description: |
+        Variante POST com os filtros no corpo. Resposta igual à do GET. JSON malformado resulta em
+        HTTP 406 em texto puro; corpo literal `null` resulta em HTTP 500.
       operationId: requisicoesEncerradasPost
       x-source-controller: RequisicoesController.RequisicoesEncerradasPost
       requestBody:
@@ -330,12 +473,24 @@ paths:
                 $ref: '#/components/schemas/RetornoApiRestRequisicoes'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/porcondicao/{condicao}/{quantidade}:
     post:
       tags: [Requisições]
       summary: Requisições por condição
-      description: Retorna requisições filtradas por uma condição específica com limite de quantidade.
+      description: |
+        Retorna as requisições do usuário em uma condição de atendimento (contexto "Atendo"),
+        ordenadas por `RequisicaoId` decrescente, no formato de lista de requisições. Alguns campos
+        que a lista tradicional traz podem vir `null`.
+
+        `condicao` é repassada à procedure `uspRequisicoesAtendimento` e vale uma de: `Abertas`,
+        `Assumidas`, `Aprovacao`, `Congeladas`, `Acompanhar`, `Solicitei`, `Avaliar`, `Encerradas`.
+        Uma condição desconhecida não é validada: devolve HTTP 200 com `records: []`.
+
+        No corpo, `Ids` **não tem efeito**; só `DescricaoOuAssunto` filtra. Envie ao menos `{}`:
+        corpo ausente ou `null` resulta em HTTP 500. A descrição pode vir com entidades HTML.
       operationId: obterRequisicoesByCondicao
       x-source-controller: RequisicoesController.ObterRequisicoesByCondicao
       parameters:
@@ -344,7 +499,8 @@ paths:
           required: true
           schema:
             type: string
-          description: Condição de filtro
+            enum: [Abertas, Assumidas, Aprovacao, Congeladas, Acompanhar, Solicitei, Avaliar, Encerradas]
+          description: Condição de atendimento
         - name: quantidade
           in: path
           required: true
@@ -371,7 +527,22 @@ paths:
     post:
       tags: [Requisições]
       summary: Busca avançada de requisições
-      description: Pesquisa avançada com filtros complexos. Usa DaoCom para busca integrada.
+      description: |
+        Pesquisa avançada de requisições (abertas e encerradas) com filtros complexos. A rota é
+        `busca` (não `buscar`).
+
+        A resposta é um **array JSON cru** de `RequisicaoSumario`, sem `_metadata` e sem `records`.
+        Um cliente que espera `records` quebra. Sucesso nunca devolve `MensagensErro`.
+
+        `UltimaAcaoExecutada_Id` precisa do código entre colchetes (ex. `Encerrar [ENC]`). Em
+        `DadosAdicionais`, dado do tipo domínio usa `Valor`; dado do tipo texto usa `ValorParcial`;
+        outro tipo, ou o campo errado, gera erro. Um dado adicional sem `Valor` e sem `ValorParcial`
+        é ignorado em silêncio.
+
+        Erros são **HTTP 406 em texto puro**: "JSON informado como null", "Ação não encontrada,
+        inativa ou sem acesso", "Id não informado para o dado adicional de índice #i",
+        "Dado não encontrado: id" e "Busca pelo campo 'Valor' (ou 'ValorParcial') não implementada
+        para o tipo de dados ...".
       operationId: buscaRequisicoes
       x-source-controller: RequisicoesController.BuscaRequisicoes
       parameters:
@@ -381,56 +552,94 @@ paths:
           schema:
             type: integer
             default: 100
-          description: Máximo de resultados por situação
+          description: Máximo de resultados por situação (aberta e encerrada)
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/VMFiltrosRequisicoesAvancado'
+            example:
+              Assunto: "fibra"
+              AbertasDesde: "2026-01-01"
+              Solicitantes:
+                - { Participante: 10, TipoPapel: 1 }
       responses:
         '200':
-          description: Resultados da busca
+          description: Array cru de resumos de requisição
           content:
             application/json:
               schema:
-                type: object
+                type: array
+                items:
+                  $ref: '#/components/schemas/RequisicaoSumario'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/{requisicao}:
     get:
       tags: [Requisições]
       summary: Detalhes da requisição
-      description: Retorna detalhes completos de uma requisição com dados organizados em conjuntos e URLs de navegação.
+      description: |
+        Retorna detalhes completos de uma requisição com dados organizados em conjuntos e URLs de
+        navegação. A resposta é um DTO cru (sem `_metadata`/`records`).
+
+        **Este endpoint nunca devolve 406.** Requisição inexistente ou sem acesso (os dois casos
+        são indistinguíveis) volta com **HTTP 200**, `Conjuntos` nulo e a mensagem
+        "Requisição inexistente ou usuário sem acesso" em `MensagensErro`. O cliente deve testar
+        `MensagensErro` e `Conjuntos == null`; o status não muda. Exceção interna resulta em 500.
+
+        Os conjuntos fixos são "Detalhes Do Pedido" (inclui `Anexos`), "Agendamento do Pedido",
+        "Participantes" e "IdsParticipantes", mais um conjunto por conjunto de dados adicionais.
+        `Tempos` traz os tempos da requisição em minutos.
       operationId: detalhes
       x-source-controller: RequisicoesController.Detalhes
       parameters:
         - $ref: '#/components/parameters/RequisicaoId'
       responses:
         '200':
-          description: Detalhes da requisição
+          description: Detalhes da requisição, ou erro de acesso em `MensagensErro` (status 200 nos dois casos)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RequisicoesDetalhesVM'
+              examples:
+                sucesso:
+                  summary: Requisição encontrada
+                  value:
+                    Conjuntos:
+                      "Detalhes Do Pedido": { Assunto: "Teste", Status: "Aberta" }
+                    UrlDadosAdicionais: "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/222885/dadosadicionais"
+                    MensagensErro: []
+                semAcesso:
+                  summary: Inexistente ou sem acesso (HTTP 200)
+                  value:
+                    Conjuntos: null
+                    MensagensErro: ["Requisição inexistente ou usuário sem acesso"]
         '401':
           $ref: '#/components/responses/NaoAutorizado'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/{requisicao}/dado-dominio-detalhado:
     get:
       tags: [Requisições]
       summary: Detalhes com dados de domínio
-      description: Retorna detalhes da requisição incluindo dados de domínio detalhados.
+      description: |
+        Mesmo `RequisicoesDetalhesVM` de `GET /v1/requisicoes/{requisicao}`, com os dados de
+        domínio detalhados. A diferença está só nos conjuntos de dados adicionais: campos de data
+        trazem o valor bruto em vez do texto formatado, e campos de lista (ListBox) trazem
+        `[{ "Id", "Texto" }]` em vez de array de textos. Use quando o cliente precisa dos ids dos
+        itens selecionados para reenviar em `POST /v1/requisicoes/{requisicao}/dadosadicionais`.
+
+        Os erros são os mesmos: HTTP 200 com `MensagensErro` (sem 406).
       operationId: detalhesRequisicaoDadoDominio
       x-source-controller: RequisicoesController.DetalhesRequisicaoDadoDominio
       parameters:
         - $ref: '#/components/parameters/RequisicaoId'
       responses:
         '200':
-          description: Detalhes com domínio
+          description: Detalhes com domínio, ou erro de acesso em `MensagensErro`
           content:
             application/json:
               schema:
@@ -442,7 +651,11 @@ paths:
     get:
       tags: [Requisições]
       summary: Histórico da requisição
-      description: Retorna o histórico de ações e eventos da requisição.
+      description: |
+        Retorna todo o histórico de ações e eventos da requisição visível ao usuário. Para filtrar
+        por ação use o `POST`. O campo `DataIncio` (sem "c") é o nome real no código.
+
+        Requisição inexistente ou sem acesso resulta em **HTTP 406 em texto puro**.
       operationId: historico
       x-source-controller: RequisicoesController.Historico
       parameters:
@@ -456,20 +669,28 @@ paths:
                 $ref: '#/components/schemas/RetornoApiRestGenerico'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
     post:
       tags: [Requisições]
       summary: Histórico filtrado
-      description: Retorna histórico filtrado com critérios no corpo da requisição.
+      description: |
+        Retorna o histórico filtrado por ação. O corpo é **opcional**: corpo vazio ou `null`
+        equivale a sem filtro (igual ao GET). O acesso é verificado antes de o corpo ser lido.
+
+        Requisição inexistente ou sem acesso, e JSON malformado, resultam em HTTP 406 em texto puro.
       operationId: historicoPost
       x-source-controller: RequisicoesController.HistoricoPost
       parameters:
         - $ref: '#/components/parameters/RequisicaoId'
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/FiltrosHistorico'
+            example:
+              CdAcao: ["ENC", "DIR"]
       responses:
         '200':
           description: Histórico filtrado
@@ -479,12 +700,20 @@ paths:
                 $ref: '#/components/schemas/RetornoApiRestGenerico'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/{requisicao}/anexos:
     get:
       tags: [Requisições]
       summary: Listar anexos
-      description: Retorna todos os anexos de uma requisição. Nota — rota usa plural `/anexos`.
+      description: |
+        Lista os anexos **já gravados** na requisição (resultado de `anexo` + `anexos/submeter`,
+        ou de ações). Nota — rota usa plural `/anexos`. O `Id` aqui é o inteiro `idDoc`, usado em
+        `GET /v1/requisicoes/{requisicao}/anexos/{idDoc}`; não confundir com o `Id` GUID do upload.
+
+        O `_metadata` desta resposta só tem `MensagensErro`. Requisição inexistente ou sem acesso
+        resulta em HTTP 406 em texto puro.
       operationId: anexos
       x-source-controller: RequisicoesController.Anexos
       parameters:
@@ -495,17 +724,69 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
+                $ref: '#/components/schemas/RetornoApiRestAnexos'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/{requisicao}/anexos/{idDoc}:
+    get:
+      tags: [Requisições]
+      summary: Baixar anexo
+      description: |
+        Baixa o arquivo de um anexo. A resposta é o **binário** do arquivo (não JSON, sem
+        envelope), com `Content-Type` deduzido da extensão e
+        `Content-Disposition: attachment; filename=<nome físico>`. O arquivo é lido por inteiro em
+        memória (sem streaming).
+
+        Erros são **HTTP 406 em texto puro**: "Requisição inexistente ou usuário sem acesso",
+        "Documento não encontrado na base de dados ou usuário sem acesso", "Data de abertura da
+        requisição centralizadora não encontrada" e "Arquivo não encontrado" (registro existe, mas o
+        arquivo não está no disco). Falha de leitura do disco resulta em 500.
+      operationId: baixarAnexo
+      x-source-controller: RequisicoesController.BaixarAnexo
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+        - name: idDoc
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Id do documento (campo `Id` de `GET /v1/requisicoes/{requisicao}/anexos`)
+      responses:
+        '200':
+          description: Arquivo do anexo
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/{requisicao}/anexo:
     post:
       tags: [Requisições]
-      summary: Anexar arquivo
+      summary: Enviar arquivo (passo 1 de 2 para anexar)
       description: |
-        Faz upload de um arquivo como anexo da requisição.
-        Nota — rota usa singular `/anexo` (diferente do GET que usa `/anexos`).
+        **Este é o passo 1 de 2.** O arquivo é apenas gravado em uma pasta temporária do servidor e
+        a requisição **não muda**: nada fica anexado e `GET /v1/requisicoes/{requisicao}/anexos` não
+        se altera. A resposta HTTP 200 com `Id` **não prova** que o anexo existe na requisição.
+
+        Para concluir, chame o passo 2, `POST /v1/requisicoes/{requisicao}/anexos/submeter`,
+        enviando o `Id` devolvido aqui, o nome do arquivo com extensão e o título.
+
+        Detalhes: nota — rota usa singular `/anexo` (o GET usa `/anexos`). Só o **primeiro** arquivo
+        do multipart é lido (o nome do campo não importa e o nome original não é usado). O `Id` é uma
+        **string** (GUID, sem extensão), não um inteiro. Esta rota não valida extensão nem nome;
+        isso acontece no passo 2.
+
+        Erros: requisição inexistente ou sem acesso resulta em HTTP 406 em texto puro. Falha ao
+        gravar (pasta temporária inexistente ou sem permissão) volta com **HTTP 200**, `Id` vazio
+        e a mensagem em `MensagensErro`. Multipart sem arquivo resulta em HTTP 500.
       operationId: anexo
       x-source-controller: RequisicoesController.Anexo
       parameters:
@@ -522,19 +803,30 @@ paths:
                   format: binary
       responses:
         '200':
-          description: Upload concluído
+          description: Arquivo gravado na pasta temporária (ou falha indicada em `MensagensErro`)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/UploadVM'
+              example:
+                Id: "3f2c9a1e-5b7d-4c1a-9e0f-2a6d8b4c1e77"
+                MensagensErro: []
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/Upload:
     post:
       tags: [Requisições]
-      summary: Upload genérico de arquivo
-      description: Upload de arquivo avulso (sem associar a uma requisição específica na URL).
+      summary: Enviar arquivo avulso (sem requisição na URL)
+      description: |
+        Mesma lógica de `POST /v1/requisicoes/{requisicao}/anexo`, **sem** verificar uma requisição
+        (não há requisição na URL). O arquivo vai para a pasta temporária e o `Id` (string GUID)
+        devolvido serve para abrir uma requisição com anexo e para
+        `POST /v1/requisicoes/{requisicao}/anexos/submeter`. Só o primeiro arquivo do multipart é
+        lido. Multipart sem arquivo resulta em HTTP 500; falha ao gravar volta com HTTP 200 e a
+        mensagem em `MensagensErro`.
       operationId: upload
       x-source-controller: RequisicoesController.Upload
       requestBody:
@@ -549,7 +841,7 @@ paths:
                   format: binary
       responses:
         '200':
-          description: Upload concluído
+          description: Arquivo gravado na pasta temporária
           content:
             application/json:
               schema:
@@ -557,11 +849,76 @@ paths:
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
+  /v1/requisicoes/{requisicao}/anexos/submeter:
+    post:
+      tags: [Requisições]
+      summary: Anexar arquivos já enviados (passo 2 de 2)
+      description: |
+        **Passo 2 de 2.** Só aqui o documento é criado na requisição. Para cada item de `Anexos`
+        o servidor valida a requisição e a permissão da ação (`CodigoAcao`, normalmente `ANDOC`) no
+        status atual, grava o documento (público, versão 1) e move o arquivo da pasta temporária para
+        a pasta de anexos com o nome `{idReq com 8 dígitos}_001_{NomeDuranteUpload}`.
+
+        Fluxo: (1) `POST /v1/requisicoes/{requisicao}/anexo` para cada arquivo, guardando o `Id`
+        (GUID); (2) este endpoint com todos os `Id` no mesmo `Anexos`. O `{requisicao}` da URL
+        sobrescreve `IdRequisicao` do corpo. Para anexar documento **não** use
+        `POST /v1/requisicoes/{requisicao}/acoes`.
+
+        Sucesso: HTTP 200 com `records: null` e `_metadata.MensagensErro` vazio. Confira o resultado em
+        `GET /v1/requisicoes/{requisicao}/anexos`.
+
+        Erros em **HTTP 406 em texto puro**: "Caractere não permitido no nome do arquivo" (quebra de
+        linha, tab, nulo, barra ou barra invertida), "Extensão não permitida: .ext" (exe, js, html,
+        bat, dll e outras; extensão vazia também é recusada), "Requisição N não encontrada.", ação
+        `ANDOC` inexistente no formulário, "Usuário sem permissão de anexar documento neste status" e
+        falha do componente de gravação. Corpo `null`, `Anexos` ausente ou `NomeDuranteUpload` nulo
+        resultam em HTTP 500, assim como um `Id` que não existe na pasta temporária (nada é gravado).
+      operationId: submeterAnexos
+      x-source-controller: RequisicoesController.SubmeterAnexos
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VMSubmissao'
+            example:
+              CodigoAcao: "ANDOC"
+              Anexos:
+                - Id: "3f2c9a1e-5b7d-4c1a-9e0f-2a6d8b4c1e77"
+                  NomeDuranteUpload: "relatorio.pdf"
+                  Titulo: "Relatório de março"
+      responses:
+        '200':
+          description: Anexos gravados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
+              example:
+                _metadata: { Release: "9.8.0", LogAmigavel: [], MensagensErro: [] }
+                records: null
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
   /v1/requisicoes/{requisicao}/acoes:
     get:
       tags: [Requisições]
       summary: Ações disponíveis
-      description: Lista as ações disponíveis para o usuário autenticado na requisição especificada.
+      description: |
+        Lista as ações disponíveis para o usuário autenticado na requisição, no status atual.
+        Consulte antes de executar uma ação: o `Id` de cada item é exatamente o valor aceito no campo
+        `Id` de `POST /v1/requisicoes/{requisicao}/acoes` (por exemplo `Encerrar [ENC]`) e `Campos`
+        descreve o que enviar (`Chave` é o nome do campo no corpo da execução). O `_metadata` vem
+        vazio (`{}`). "ANDOC" aparece aqui se o formulário permite, mas o anexo de arquivo segue o
+        fluxo `anexo` + `anexos/submeter`.
+
+        Requisição inexistente ou sem acesso resulta em HTTP 406 em texto puro.
       operationId: acoesDoUsuarioNaRequisicao
       x-source-controller: RequisicoesController.AcoesDoUsuarioNaRequisicao
       parameters:
@@ -572,15 +929,30 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
+                $ref: '#/components/schemas/RetornoApiRestAcoes'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
     post:
       tags: [Requisições]
       summary: Executar ação
       description: |
         Executa uma ação de workflow na requisição.
         Ver [Guia de Ações de Workflow](guides/workflow-actions.md) para códigos e parâmetros.
+
+        O campo `Id` **precisa conter o código da ação entre colchetes**: `"[ENC]"` ou
+        `"Encerrar [ENC]"` (ação de usuário: `[USU<n>]`). `"ENC"` sozinho resulta em
+        "Ação não encontrada" (com HTTP 200). Use o `Id` devolvido por `GET .../acoes`.
+
+        **Quase todo erro volta com HTTP 200**, na forma `_metadata.MensagensErro`: "Ação não
+        informada. Preencha o campo 'Id'.", "Data inválida", "Ação não encontrada", usuário sem
+        permissão na ação neste status e erros do serviço. Esta rota **não** chama a verificação de
+        erros depois de executar. Só dois casos dão 406 em texto puro: requisição sem acesso e corpo
+        `null` ("ação não informada").
+
+        A resposta 200 tem duas formas: (a) envelope `RetornoApiRest` com `records: null`; (b) se o
+        serviço devolve um texto, esse texto cru como string JSON. O cliente deve tratar as duas.
       operationId: executarAcao
       x-source-controller: RequisicoesController.ExecutarAcao
       parameters:
@@ -591,23 +963,47 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/VMExecutarAcaoApi'
+            example:
+              Id: "Encerrar [ENC]"
+              Descricao: "Resolvido"
+              tipoAvaliacao: 2
       responses:
         '200':
-          description: Ação executada
+          description: |
+            Ação executada, ou erro de negócio em `_metadata.MensagensErro` (o status é 200 nos dois
+            casos). Pode ser o envelope ou uma string.
           content:
             application/json:
               schema:
-                type: object
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
+                oneOf:
+                  - $ref: '#/components/schemas/RetornoApiRestGenerico'
+                  - type: string
+              examples:
+                sucesso:
+                  summary: Ação sem texto de retorno
+                  value:
+                    _metadata: { Release: "9.8.0", LogAmigavel: [], MensagensErro: [] }
+                    records: null
+                erro:
+                  summary: Ação não encontrada (HTTP 200)
+                  value:
+                    _metadata: { Release: "9.8.0", LogAmigavel: [], MensagensErro: ["Ação não encontrada"] }
+                    records: null
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/{requisicao}/acoes/DIR/grupos:
     get:
       tags: [Requisições]
       summary: Grupos disponíveis para direcionar
-      description: Lista os grupos possíveis como destino da ação DIR (Direcionar).
+      description: |
+        Lista os grupos e usuários possíveis como destino da ação `DIR` (Direcionar). Cada `Id` é uma
+        string pronta para usar em `NovoSolicitado` de `POST .../acoes`, inclusive com o espaço final
+        (`"{ IdParticipante : 12, IdTipoPapel : 2 } "`). O `_metadata` vem vazio (`{}`).
+
+        Requisição inexistente ou sem acesso resulta em HTTP 406 em texto puro.
       operationId: possiveisSolicitadosAcaoDirecionar
       x-source-controller: RequisicoesController.PossiveisSolicitadosAcaoDirecionar
       parameters:
@@ -618,29 +1014,83 @@ paths:
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/RetornoApiRestValor'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/{requisicao}/acoes/{codigoAcao}/usuarios-responsaveis:
+    get:
+      tags: [Requisições]
+      summary: Usuários responsáveis para atribuição
+      description: |
+        Lista os usuários que podem receber a atribuição nas ações `ATR` e `ATRR`. Use o `Id` devolvido
+        como `usuResponsavelId` em `POST .../acoes`. O `formularioId` correto vem na URL
+        `Opcoes.Url` do campo "Responsável" de `GET .../acoes`.
+
+        Para `codigoAcao = ATR` a lista vem de `UsuariosResponsaveisParaAtribuicao`; para **qualquer
+        outro** código (na prática `ATRR`) vem do papel `RESP` do formulário (o código não valida o
+        valor). O `_metadata` vem vazio (`{}`). Requisição inexistente ou sem acesso resulta em
+        HTTP 406 em texto puro.
+      operationId: usuariosResponsaveisAtribuicao
+      x-source-controller: RequisicoesController.UsuariosResponsaveisAtribuicao
+      parameters:
+        - $ref: '#/components/parameters/RequisicaoId'
+        - name: codigoAcao
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [ATR, ATRR]
+          description: Código da ação
+        - name: formularioId
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Id do formulário da requisição. Sem ele pode responder 404 (seleção de ação do Web API)
+      responses:
+        '200':
+          description: Usuários responsáveis
+          content:
+            application/json:
+              schema:
                 $ref: '#/components/schemas/RetornoApiRestGenerico'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/{requisicao}/dadosadicionais:
     get:
       tags: [Requisições]
       summary: Dados adicionais da requisição
-      description: Retorna os conjuntos de dados adicionais preenchidos na requisição.
+      description: |
+        Retorna a estrutura dos conjuntos de dados adicionais da requisição (definição dos campos e
+        valores atuais). É a estrutura usada para montar a edição; as chaves de campo daqui são as
+        usadas em `POST` na mesma rota. Para o formato achatado chave-valor use
+        `GET /v1/requisicoes/{requisicao}`.
+
+        O controller não levanta 406: requisição inexistente ou sem acesso volta com **HTTP 200**,
+        `ConjuntosDadosAdicionais` nulo e a mensagem em `MensagensErro`.
       operationId: dadosAdicionais
       x-source-controller: RequisicoesController.DadosAdicionais
       parameters:
         - $ref: '#/components/parameters/RequisicaoId'
       responses:
         '200':
-          description: Dados adicionais
+          description: Dados adicionais, ou erro de acesso em `MensagensErro`
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   ConjuntosDadosAdicionais:
-                    type: object
+                    type: array
+                    nullable: true
+                    items:
+                      $ref: '#/components/schemas/ConjuntoCampos'
                   MensagensErro:
                     type: array
                     items:
@@ -650,11 +1100,24 @@ paths:
     post:
       tags: [Requisições]
       summary: Editar dados adicionais
-      description: Atualiza os dados adicionais de uma requisição.
+      description: |
+        Atualiza dados adicionais da requisição. Corpo: `{ "<nome do conjunto>": { "<chave do campo>": valor } }`;
+        cada conjunto vira um único item, então conjuntos com vários itens não são editáveis por
+        esta rota. As chaves vêm de `GET` na mesma rota. Com o header `Debug: RetornarJson` nada é
+        gravado.
+
+        A resposta 200 é uma **string JSON crua** (texto devolvido pelo componente; vazio quando não há
+        mensagem), não um objeto nem envelope. **Não há como distinguir sucesso de falha pelo status**:
+        o componente pode devolver a mensagem de erro na própria string. Releia
+        `GET .../dadosadicionais` para confirmar a gravação.
+
+        Sem acesso à requisição e JSON malformado resultam em HTTP 406 em texto puro; corpo `null`
+        resulta em 406 sem corpo.
       operationId: editarDadosAdicionais
       x-source-controller: RequisicoesController.EditarDadosAdicionais
       parameters:
         - $ref: '#/components/parameters/RequisicaoId'
+        - $ref: '#/components/parameters/DebugRetornarJson'
       requestBody:
         required: true
         content:
@@ -665,15 +1128,48 @@ paths:
                 type: object
                 additionalProperties: true
               description: 'Mapa de conjuntos → campos → valores'
+            example:
+              "Detalhes Do Pedido": { DAObservacao: "texto" }
       responses:
         '200':
-          description: Dados atualizados
+          description: Texto de retorno do componente (string JSON crua)
           content:
             application/json:
               schema:
-                type: object
+                type: string
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
         '406':
           $ref: '#/components/responses/ErroNegocio'
+
+  /v1/requisicoes/{requisicao}/tarefas:
+    get:
+      tags: [Requisições]
+      summary: Tarefas da requisição
+      description: |
+        Lista as tarefas simples da requisição, com os dados básicos de cada tarefa (os campos exatos
+        são os da classe de retorno do componente). `{requisicao}` aqui é `long`.
+
+        O controller **não verifica o acesso** à requisição; a restrição fica a cargo do componente.
+        Falhas aparecem em `_metadata.MensagensErro` com HTTP 200, ou HTTP 500 se a chamada lançar
+        exceção.
+      operationId: tarefasDaRequisicao
+      x-source-controller: RequisicoesController.Tarefas
+      parameters:
+        - name: requisicao
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: ID da requisição
+      responses:
+        '200':
+          description: Tarefas da requisição
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -681,7 +1177,10 @@ paths:
     get:
       tags: [Requisições]
       summary: Requisições vinculadas
-      description: Retorna as requisições vinculadas à requisição especificada.
+      description: |
+        Retorna as requisições vinculadas. O `_metadata` vem vazio (`{}`), sem `Release`,
+        `LogAmigavel` nem `MensagensErro`. Requisição inexistente ou sem acesso resulta em HTTP 406
+        em texto puro.
       operationId: requisicoesVinculadas
       x-source-controller: RequisicoesController.RequisicoesVinculadas
       parameters:
@@ -692,15 +1191,22 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
+                $ref: '#/components/schemas/RetornoApiRestVinculadas'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/{requisicao}/pesquisasatisfacao:
     get:
       tags: [Requisições]
       summary: Pesquisa de satisfação
-      description: Retorna a pesquisa de satisfação disponível para a requisição.
+      description: |
+        Retorna a pesquisa de satisfação aplicável à requisição (DTO cru, sem envelope). Sem pesquisa
+        aplicável, `PossuiPesquisa` é `false` e `Perguntas` é nulo. Os ids das perguntas e das
+        respostas possíveis alimentam `POST /v1/requisicoes/responderpesquisasatisfacao`.
+
+        Requisição inexistente ou sem acesso resulta em HTTP 406 em texto puro.
       operationId: pesquisaSatisfacao
       x-source-controller: RequisicoesController.PesquisaSatisfacao
       parameters:
@@ -714,12 +1220,21 @@ paths:
                 $ref: '#/components/schemas/PesquisaVM'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/responderpesquisasatisfacao:
     post:
       tags: [Requisições]
       summary: Responder pesquisa de satisfação
-      description: Submete a resposta de uma pesquisa de satisfação.
+      description: |
+        Submete a resposta de uma pesquisa de satisfação (registrada executando a ação `ENC`, `AVAL`
+        ou `PESQ` disponível ao usuário na requisição).
+
+        **Esta rota não usa 406.** Falhas de negócio voltam como **HTTP 200** com uma string que começa
+        com `erro:` (por exemplo `"erro: acesso negado"`, também para requisição inexistente, ou
+        `"erro: acesso negado, não há uma ação 'PESQ', 'ENC' ou 'AVAL' não disponível"`). O cliente
+        deve tratar uma string iniciada por `erro:` como falha.
       operationId: responderPesquisaSatisfacao
       x-source-controller: RequisicoesController.ResponderPesquisaSatisfacao
       requestBody:
@@ -728,15 +1243,37 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PesquisaRespondida'
+            example:
+              IdRequisicao: 222885
+              Respostas:
+                - { IdPergunta: 3, IdOpcao: 12 }
       responses:
         '200':
-          description: Resposta registrada
+          description: String crua do componente; começa com `erro:` em caso de falha
           content:
             application/json:
               schema:
                 type: string
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/requisicoes/pesquisas-pendentes:
+    get:
+      tags: [Requisições]
+      summary: Pesquisas de satisfação pendentes
+      description: |
+        Lista as pesquisas de satisfação ainda não respondidas pelo usuário autenticado. Use
+        `IdRequisicao` em `GET /v1/requisicoes/{requisicao}/pesquisasatisfacao`. Sem pendências:
+        HTTP 200 com `records: []`. Não há erro de negócio.
+      operationId: pesquisasPendentes
+      x-source-controller: RequisicoesController.PesquisasPendentes
+      responses:
+        '200':
+          description: Pesquisas pendentes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetornoApiRestPesquisasPendentes'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -747,35 +1284,62 @@ paths:
       tags: [Requisições]
       summary: Abrir requisição (retorno simples)
       description: |
-        Cria uma nova requisição e retorna apenas o ID da requisição criada como string.
+        Cria uma nova requisição e retorna **apenas o número** da requisição criada, como string JSON
+        crua (sem envelope), por exemplo `"222886"`.
+
+        Cada conjunto de `Conjuntos` é um objeto (um item) ou um array de objetos (vários itens).
+        Conjuntos usuais: `DadosBasicos` (`Assunto`, `Descricao`, `Atividade`), `Papeis` (por exemplo
+        `ANTE`, `ADO` como `{ "IdParticipante": n, "IdTipoPapel": 1 }`) e os conjuntos de dados
+        adicionais do formulário.
+
+        Erros (formulário inexistente, validação de campo — "O campo 'Conjunto.Campo' recebeu a
+        seguinte mensagem de validação: ...", erros do serviço, corpo nulo) são **HTTP 406 em texto
+        puro**. **Atenção:** o 406 é lançado *depois* de a abertura ser tentada; mensagens acumuladas
+        após a criação ainda geram 406, então a requisição pode ter sido criada mesmo com a falha.
+
+        Com o header `Debug: RetornarJson` nada é aberto e a rota responde 406 com o JSON recebido.
       operationId: abrirRequisicao
       x-source-controller: RequisicoesController.AbrirRequisicao
+      parameters:
+        - $ref: '#/components/parameters/DebugRetornarJson'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/VMAbrirRequisicao'
+            example:
+              Formulario: 68
+              Conjuntos:
+                DadosBasicos: { Assunto: "Teste", Descricao: "Descrição" }
       responses:
         '200':
-          description: ID da requisição criada
+          description: Número da requisição criada
           content:
             application/json:
               schema:
                 type: string
-              example: "12345"
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
+              example: "222886"
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/abrirRequisicao:
     post:
       tags: [Requisições]
       summary: Abrir requisição (retorno completo)
-      description: Cria uma nova requisição e retorna objeto completo com IdRequisicaoAberta e metadados.
+      description: |
+        Igual a `POST /v1/requisicoes/abrir`, mas o número da requisição vem dentro do envelope
+        `RetornoApiRest`, em `records[0].IdRequisicaoAberta` (como **string**). `records` vem vazio se
+        a abertura não devolveu um id.
+
+        Erros são **HTTP 406 em texto puro**, com a mesma ressalva de `abrir`: a checagem acontece
+        depois da tentativa de abertura. Aceita o header `Debug: RetornarJson`.
       operationId: abrirRequisicaoRetornoCompleto
       x-source-controller: RequisicoesController.AbrirRequisicaoRetornoCompleto
+      parameters:
+        - $ref: '#/components/parameters/DebugRetornarJson'
       requestBody:
         required: true
         content:
@@ -784,28 +1348,32 @@ paths:
               $ref: '#/components/schemas/VMAbrirRequisicao'
       responses:
         '200':
-          description: Requisição criada com detalhes
+          description: Requisição criada
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  IdRequisicaoAberta:
-                    type: integer
-                  MensagensErro:
-                    type: array
-                    items:
-                      type: string
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
+                $ref: '#/components/schemas/RetornoApiRestRequisicaoAberta'
+              example:
+                _metadata: { Release: "9.8.0", LogAmigavel: [], MensagensErro: [] }
+                records:
+                  - IdRequisicaoAberta: "222886"
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/desdobrar:
     post:
       tags: [Requisições]
       summary: Desdobrar requisição
-      description: Cria uma nova requisição a partir de uma existente (subdivisão/desdobramento).
+      description: |
+        Cria uma nova requisição a partir de uma existente (desdobramento). `IdRequisicaoADesdobrar`
+        identifica a requisição-mãe. A resposta é o resultado do serviço (id da nova requisição) como
+        string JSON crua, sem envelope.
+
+        Erros são **HTTP 406 em texto puro** (formulário inexistente, "É preciso informar o campo
+        IdRequisicaoADesdobrar", erros do desdobramento), verificados *depois* da execução. Corpo
+        nulo resulta em HTTP 500.
       operationId: desdobrarRequisicao
       x-source-controller: RequisicoesController.DesdobrarRequisicao
       requestBody:
@@ -821,10 +1389,10 @@ paths:
             application/json:
               schema:
                 type: string
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   # --- Abertura Formato-Específico (Integrações) ---
 
@@ -833,16 +1401,20 @@ paths:
       tags: [Requisições]
       summary: Abrir requisição (formato Zabbix, variante padrão)
       description: |
-        Cria requisição no formato Zabbix usando a variante padrão ("RompimentoFibra").
-        Oculto do Swagger. Ver também a rota com `{variante}` para subtipos específicos.
+        Mesma operação de `POST /v1/requisicoes/abrirFormatoZabbix/{variante}` **sem** o segmento
+        `{variante}`: usa a variante padrão `RompimentoFibra`. Oculto do Swagger. Veja a descrição da
+        rota com `{variante}` para o corpo, a resposta e os erros.
       operationId: abrirRequisicaoFormatoZabbixDefault
       x-source-controller: RequisicoesController.AbrirRequisicaoFormatoZabbix
+      parameters:
+        - $ref: '#/components/parameters/DebugRetornarJson'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              additionalProperties: true
       responses:
         '200':
           description: Requisição criada
@@ -850,16 +1422,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
         '406':
           $ref: '#/components/responses/ErroNegocio'
 
   /v1/requisicoes/abrirFormatoZabbix/{variante}:
     post:
       tags: [Requisições]
-      summary: Abrir requisição (formato Zabbix, variante específica)
+      summary: Abrir requisição (formato Zabbix, por variante)
       description: |
-        Cria requisição no formato Zabbix com variante específica.
-        Oculto do Swagger. Sem `{variante}`, usa default "RompimentoFibra".
+        Abre uma requisição a partir de um alerta do Zabbix. Esta é a **única rota** para todas as
+        integrações desse tipo: as "variantes" (RompimentoFibra, AtenuaçãoPON, SaturaçãoPON,
+        UplinkGPON, TaxaDeErro, SBC e outras) são chaves de configuração em `ParametroAvancado`
+        (`IntegracaoZabbix/<variante>`). As rotas antigas `abrirFormato*` por variante (POP, Massiva,
+        SBCs, Trechos, Interconexões, Retificadoras, IncidentesIP, AnaliseIncidentesIP,
+        InvestigacaoSaturacao, ZabbixDiscart) **não existem mais**; use esta. Oculto do Swagger.
+
+        O corpo é JSON livre: o formato é definido pelo template da variante. Cada campo listado em
+        `CamposObrigatorios` da configuração precisa existir no payload (comparação sem diferenciar
+        maiúsculas). Exemplo: `{"olt":"OLT-01","hostName":"olt01","problem_id":"123",
+        "HorarioQueda":"2026-10-08 10:00:00","PosicoesAfetadas":[{"Slot":"1","Pon":"2"}]}` (os campos
+        exigidos dependem da variante).
+
+        Resposta 200: `records[0]` é o id da requisição aberta (string); com ações automáticas, os
+        itens seguintes são strings "Retorno da ação <id>: ..." e as mensagens delas se somam em
+        `_metadata.MensagensErro` (200). Com `AcoesAutomaticasAssincronas = true` as ações rodam depois
+        e o resultado só aparece em log, nunca na resposta. Com `Debug: RetornarJson` nada é gravado e
+        `records` traz o `VMAbrirRequisicao` montado.
+
+        Erros em **HTTP 406 em texto puro** (não o envelope JSON): chave de configuração inexistente,
+        "JSON não informado", "Campo obrigatório '<x>' não informado no JSON recebido", template ou
+        conjunto ausente, lookup de domínio sem correspondência e validações do formulário.
       operationId: abrirRequisicaoFormatoZabbix
       x-source-controller: RequisicoesController.AbrirRequisicaoFormatoZabbix
       parameters:
@@ -868,13 +1462,15 @@ paths:
           required: true
           schema:
             type: string
-          description: Variante do formato Zabbix (ex. "RompimentoFibra")
+          description: Variante do formato Zabbix (ex. "RompimentoFibra"); corresponde à chave `IntegracaoZabbix/<variante>`
+        - $ref: '#/components/parameters/DebugRetornarJson'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              additionalProperties: true
       responses:
         '200':
           description: Requisição criada
@@ -882,6 +1478,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetornoApiRestGenerico'
+              example:
+                _metadata: { Release: "9.8.0", LogAmigavel: [], MensagensErro: [] }
+                records: ["222886"]
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
         '406':
           $ref: '#/components/responses/ErroNegocio'
 
@@ -889,7 +1490,22 @@ paths:
     post:
       tags: [Requisições]
       summary: Atualizar requisição (formato Zabbix)
-      description: Atualiza uma requisição existente no formato Zabbix. Oculto do Swagger.
+      description: |
+        Atualiza uma requisição existente a partir de um novo alerta do Zabbix. Escreve na requisição:
+        executa as `AcoesAutomaticas` e depois cada ação de `TemplatesAcao` (mesmo caminho de
+        `POST .../acoes`). Configuração: `ParametroAvancado` chave `IntegracaoZabbixAtualizar/<variante>`.
+        Oculto do Swagger.
+
+        O corpo é JSON livre. Na prática `qtd_afetado` é obrigatório (ausente causa HTTP 500 quando o
+        template usa `%AFETADOS%`). Esta rota **não** tem modo `Debug`.
+
+        Resposta 200: `records` é uma lista de strings: primeiro os retornos das ações automáticas
+        ("Retorno da ação X: ..."), depois, para cada item de `TemplatesAcao`, "Retorno da ação '<Id>':"
+        seguido do texto devolvido. Falha em uma ação individual **não** gera 406: aparece em `records`
+        ou em `_metadata.MensagensErro` com HTTP 200.
+
+        Sem acesso à requisição, JSON inválido e chave de configuração inexistente resultam em
+        HTTP 406 em texto puro.
       operationId: atualizarFormatoZabbix
       x-source-controller: RequisicoesController.AtualizarFormatoZabbix
       parameters:
@@ -899,280 +1515,23 @@ paths:
           required: true
           schema:
             type: string
+          description: Variante; corresponde à chave `IntegracaoZabbixAtualizar/<variante>`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         '200':
-          description: Requisição atualizada
+          description: Retorno das ações executadas
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetornoApiRestString'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/{requisicao}/atualizarPlacaPON/{variante}:
-    post:
-      tags: [Requisições]
-      summary: Recebe evento de atualização PlacaPON e executa ações configuradas
-      description: Recebe payload tipado (formato Atrix/Alloha) e executa ações configuradas via template ParametroAvancado. Oculto do Swagger.
-      operationId: atualizarPlacaPON
-      x-source-controller: RequisicoesController.AtualizarPlacaPON
-      parameters:
-        - $ref: '#/components/parameters/RequisicaoId'
-        - name: variante
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Ações executadas com sucesso
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestString'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoInvestigacaoSaturacao:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato Investigação Saturação)
-      description: Cria requisição para investigação de saturação. Oculto do Swagger.
-      operationId: abrirRequisicaoFormatoSaturacao
-      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoSaturacao
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoIncidentesIp:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato Incidentes IP)
-      description: Cria requisição para incidentes IP. Oculto do Swagger.
-      operationId: abrirRequisicaoFormatoIncidentesIP
-      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoIncidentesIP
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoAnaliseIncidentesIP:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato Análise Incidentes IP)
-      description: Cria requisição para análise de incidentes IP. Oculto do Swagger.
-      operationId: abrirFormatoAnaliseIncidentesIP
-      x-source-controller: RequisicoesController.AbrirFormatoAnaliseIncidentesIP
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoRetificadoras:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato Retificadoras)
-      description: Cria requisição para retificadoras. Oculto do Swagger.
-      operationId: abrirRequisicaoFormatoRetificadoras
-      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoRetificadoras
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoZabbixDiscart:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato Zabbix Discart)
-      description: Cria requisição no formato Zabbix Discart. Oculto do Swagger.
-      operationId: abrirRequisicaoFormatoZabbixDiscart
-      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoZabbixDiscart
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoSBCs:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato SBCs)
-      description: Cria requisição no formato SBCs.
-      operationId: abrirRequisicaoFormatoSBCs
-      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoSBCs
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoTrechos/{atividadeId}:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato Trechos)
-      description: Cria requisição no formato Trechos, associada a uma atividade.
-      operationId: abrirRequisicaoFormatoTrechos
-      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoTrechos
-      parameters:
-        - name: atividadeId
-          in: path
-          required: true
-          schema:
-            type: string
-          description: ID da atividade
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoMassiva:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato Massiva)
-      description: Cria requisição no formato Massiva.
-      operationId: abrirRequisicaoFormatoMassiva
-      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoMassiva
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoInterconexoes:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato Interconexões)
-      description: Cria requisição no formato Interconexões.
-      operationId: abrirRequisicaoFormatoInterconexoes
-      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoInterconexoes
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
-
-  /v1/requisicoes/abrirFormatoPOP:
-    post:
-      tags: [Requisições]
-      summary: Abrir requisição (formato POP)
-      description: Cria requisição no formato POP. Oculto do Swagger.
-      operationId: abrirRequisicaoFormatoPOP
-      x-source-controller: RequisicoesController.AbrirRequisicaoFormatoPOP
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        '200':
-          description: Requisição criada
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
         '406':
           $ref: '#/components/responses/ErroNegocio'
 
@@ -1183,8 +1542,10 @@ paths:
       tags: [Requisições]
       summary: Pesquisar participantes por termo
       description: |
-        Pesquisa participantes por formulário/papel e termo de busca.
-        Retorna array direto (sem envelope RetornoApiRest).
+        Pesquisa participantes por vínculo formulário-papel e termo de busca no nome (máximo de 100
+        itens). Retorna **array cru** (sem envelope). O `Id` de cada item é uma **string que contém
+        JSON** (`{"IdParticipante":123,"IdTipoPapel":2}`), pronta para ser enviada como valor do
+        participante na abertura de requisição. `Legenda` e `IdDominioPai` vêm sempre `null`.
       operationId: pesquisar
       x-source-controller: ParticipantesController.Pesquisar
       parameters:
@@ -1193,13 +1554,13 @@ paths:
           required: true
           schema:
             type: integer
-          description: ID do formulário-papel
+          description: ID do vínculo formulário-papel
         - name: termo
           in: path
           required: true
           schema:
             type: string
-          description: Termo de pesquisa
+          description: Termo de pesquisa (texto no nome)
       responses:
         '200':
           description: Participantes encontrados
@@ -1209,6 +1570,11 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Valor'
+              example:
+                - Id: '{"IdParticipante":123,"IdTipoPapel":2}'
+                  Texto: "Maria Silva"
+                  Legenda: null
+                  IdDominioPai: null
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -1216,7 +1582,10 @@ paths:
     get:
       tags: [Requisições]
       summary: Pesquisar participantes (v2)
-      description: Pesquisa participantes com resposta em envelope RetornoApiRest.
+      description: |
+        Mesma busca de `pesquisar`, por query string e com resposta no envelope `RetornoApiRest`
+        (máximo de 100 itens; formato de `Id` igual). `formularioPapelId` ou `termo` ausentes podem
+        responder 404 (seleção de ação do Web API).
       operationId: obterParticipantes2
       x-source-controller: ParticipantesController.ObterParticipantes2
       parameters:
@@ -1244,7 +1613,10 @@ paths:
     get:
       tags: [Requisições]
       summary: Pesquisar participantes de domínio
-      description: Pesquisa participantes filtrados por domínio.
+      description: |
+        Pesquisa participantes dentro do domínio permitido ao usuário autenticado (máximo de 100
+        itens). Atenção: o parâmetro aqui se chama `term` (nas outras rotas é `termo`). O código trata
+        `term` nulo como texto vazio, mas como não tem valor padrão o Web API tende a exigi-lo: sem ele, pode responder 404 (seleção de ação do Web API).
       operationId: obterParticipantesDominio
       x-source-controller: ParticipantesController.ObterParticipantesDominio
       parameters:
@@ -1258,6 +1630,7 @@ paths:
           required: true
           schema:
             type: string
+          description: Termo de pesquisa (pode ser vazio, mas o parâmetro precisa estar na URL)
       responses:
         '200':
           description: Participantes de domínio encontrados
@@ -1272,7 +1645,11 @@ paths:
     get:
       tags: [Requisições]
       summary: Pesquisar participantes para dependência (busca)
-      description: Pesquisa participantes considerando relações de dependência entre campos do formulário.
+      description: |
+        Lista os participantes relacionados ao participante pai escolhido (campo dependente de outro).
+        Sem filtro por texto. Os cinco parâmetros são obrigatórios (ausente: pode responder 404, seleção de ação do Web API). `jsonPai` é um
+        JSON `int[][]` URL-encoded (por exemplo `[[2,123]]`); só o primeiro par é usado, e dele só o
+        índice 1 (id do participante pai). `jsonPai` inválido pode resultar em HTTP 500.
       operationId: obterParticipantesParaDependenciaSEARCH
       x-source-controller: ParticipantesController.ObterParticipantesParaDependenciaSEARCH
       parameters:
@@ -1301,14 +1678,14 @@ paths:
           required: true
           schema:
             type: string
-          description: JSON serializado do campo pai
+          description: JSON `int[][]` do participante pai, URL-encoded (ex. `[[2,123]]`)
       responses:
         '200':
           description: Participantes para dependência
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RetornoApiRestGenerico'
+                $ref: '#/components/schemas/RetornoApiRestValor'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -1316,7 +1693,14 @@ paths:
     get:
       tags: [Requisições]
       summary: Pesquisar participantes para dependência (combo)
-      description: Pesquisa participantes para preenchimento de combos dependentes.
+      description: |
+        Pesquisa participantes para combos dependentes, filtrando por prefixo do nome (`term`, sem
+        diferenciar maiúsculas) depois de buscar tudo no componente. `jsonPai` é um JSON `int[][]`
+        com pares `[idTipoPapel, idParticipantePai]`. Os três parâmetros são obrigatórios na prática
+        (ausente: pode responder 404, seleção de ação do Web API; `term` não tem valor padrão).
+
+        Vínculo formulário-papel inexistente, ou sem papel relacionado, volta com **HTTP 200**,
+        `records` vazio e a mensagem em `_metadata.MensagensErro` (sem 406).
       operationId: obterParticipantesParaDependenciaCOMBO
       x-source-controller: ParticipantesController.ObterParticipantesParaDependenciaCOMBO
       parameters:
@@ -1330,15 +1714,16 @@ paths:
           required: true
           schema:
             type: string
-          description: JSON serializado do campo pai
+          description: JSON `int[][]` com pares `[idTipoPapel, idParticipantePai]`, URL-encoded
         - name: term
           in: query
-          required: false
+          required: true
           schema:
             type: string
+          description: Prefixo do nome (pode ser vazio, mas o parâmetro precisa estar na URL)
       responses:
         '200':
-          description: Participantes para combo
+          description: Participantes para combo, ou erro em `_metadata.MensagensErro` (status 200)
           content:
             application/json:
               schema:
@@ -1354,7 +1739,9 @@ paths:
     get:
       tags: [Catálogo]
       summary: Listar áreas do catálogo
-      description: Retorna todas as áreas disponíveis com seus formulários.
+      description: |
+        Retorna as áreas e os formulários que o usuário pode abrir. O `_metadata` é montado à mão e só
+        traz `Release`; `LogAmigavel` e `MensagensErro` saem `null` (diferente da maioria das rotas).
       operationId: areas
       x-source-controller: CardapioController.Areas
       responses:
@@ -1371,7 +1758,15 @@ paths:
     get:
       tags: [Catálogo]
       summary: Item do catálogo
-      description: Retorna detalhes de um item específico do catálogo.
+      description: |
+        Retorna o formulário de abertura de um item do catálogo (conjuntos mesclados, regras e
+        condições). É a rota que o portal usa para montar o formulário; preserva o campo `Apresentacao`
+        dos campos. A resposta é um objeto cru; `MensagensErro` e `LogAmigavel` são chaves do próprio
+        objeto, não de `_metadata`.
+
+        **Erros não usam 406 nem 403.** Item inexistente ou mensagens acumuladas voltam com
+        **HTTP 200** e o corpo reduzido a `{ LogAmigavel, MensagensErro }`, sem as demais chaves. O
+        cliente detecta a falha pela ausência de `Formulario` ou por `MensagensErro` não vazio.
       operationId: itemCardapio
       x-source-controller: CardapioController.ItemCardapio
       parameters:
@@ -1384,19 +1779,122 @@ paths:
           description: ID do item do catálogo
       responses:
         '200':
-          description: Item do catálogo
+          description: Formulário do item, ou erro em `MensagensErro` (status 200 nos dois casos)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ItemCardapioVM'
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+
+  /v1/cardapio/{id}/planilha/{chaveConjunto}:
+    get:
+      tags: [Catálogo]
+      summary: Baixar planilha-modelo de um conjunto
+      description: |
+        Devolve a planilha-modelo (XLSX) para preencher um conjunto de múltiplos itens. A resposta é o
+        binário do arquivo, com
+        `Content-Disposition: attachment; filename=planilha-modelo-conjunto<chaveConjunto>.xlsx`.
+        O preenchimento volta pelo `POST` da mesma rota. Erros do serviço resultam em HTTP 406 em texto
+        puro.
+      operationId: downloadPlanilha
+      x-source-controller: CardapioController.DownloadPlanilha
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do item de cardápio
+        - name: chaveConjunto
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Chave do conjunto de dados adicionais
+      responses:
+        '200':
+          description: Arquivo XLSX
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
+    post:
+      tags: [Catálogo]
+      summary: Enviar planilha preenchida de um conjunto
+      description: |
+        Lê a planilha preenchida e devolve as linhas para o cliente usá-las no conjunto. **Não cria
+        requisição.** Só o **primeiro** arquivo do multipart é lido (o nome do campo não importa).
+
+        Sem arquivo: HTTP 406 em texto puro ("Nenhum arquivo enviado."). Erros parciais (linhas
+        inválidas) voltam com **HTTP 200** dentro de `MensagensErro`; o cliente deve olhar
+        `MensagensErro` mesmo com 200.
+      operationId: uploadPlanilha
+      x-source-controller: CardapioController.UploadPlanilha
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID do item de cardápio
+        - name: chaveConjunto
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Chave do conjunto de dados adicionais
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Linhas lidas (e erros parciais em `MensagensErro`)
           content:
             application/json:
               schema:
                 type: object
+                properties:
+                  MensagensErro:
+                    type: array
+                    items:
+                      type: string
+                  Dados:
+                    type: array
+                    description: Matriz de linhas por células
+                    items:
+                      type: array
+                      items:
+                        type: string
+              example:
+                MensagensErro: []
+                Dados:
+                  - ["Maria", "11999999999"]
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/cardapio/categorias:
     get:
       tags: [Catálogo]
       summary: Listar categorias
-      description: Retorna todas as categorias de formulários.
+      description: |
+        Retorna as categorias de formulários filtradas pelos grupos de acesso do usuário, como **array
+        cru** (sem envelope). `Itens` é `null` (não lista vazia) quando a categoria não tem itens. Para
+        a versão com tags e categorias inferidas use `GET /v1/cardapio/portal`.
       operationId: categorias
       x-source-controller: CardapioController.Categorias
       responses:
@@ -1407,7 +1905,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
+                  $ref: '#/components/schemas/CategoriaCardapioVM'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -1517,8 +2015,12 @@ paths:
       tags: [Catálogo]
       summary: Detalhes do formulário
       description: |
-        Retorna detalhes de um formulário com conjuntos de campos.
-        Retorna objeto direto (sem envelope RetornoApiRest).
+        Retorna detalhes de um formulário com conjuntos de campos (atividade não escolhida), como
+        objeto cru (sem envelope). O campo `Id` nunca é preenchido (sempre `0`). As URLs de
+        sub-recursos são absolutas e sempre `https://`.
+
+        Erros são **HTTP 403** (não 406), com as mensagens em texto puro: formulário inexistente ou
+        mensagens acumuladas na montagem dos dados.
       operationId: formulario
       x-source-controller: CardapioController.Formulario
       parameters:
@@ -1537,12 +2039,17 @@ paths:
                 $ref: '#/components/schemas/FormularioVM'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '403':
+          description: Formulário inexistente ou erro ao montar os dados (corpo `text/plain`)
 
   /v1/cardapio/formularios/{formulario}/atividades:
     get:
       tags: [Catálogo]
       summary: Atividades do formulário
-      description: Lista as atividades disponíveis para o formulário.
+      description: |
+        Lista as atividades disponíveis para o formulário, como **array cru** (sem envelope).
+        `Categoria` e `SubCategoria` trazem só o `Id`. A atividade escolhida entra na abertura como
+        `Atividade` do corpo.
       operationId: atividades
       x-source-controller: CardapioController.Atividades
       parameters:
@@ -1560,7 +2067,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
+                  $ref: '#/components/schemas/AtividadeListItem'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -1568,7 +2075,11 @@ paths:
     get:
       tags: [Catálogo]
       summary: Detalhes da atividade
-      description: Retorna detalhes de uma atividade específica com seus campos e conjuntos.
+      description: |
+        Retorna os campos e conjuntos de uma atividade específica (objeto cru). Não expõe
+        `MensagensErro`: mensagens acumuladas ficam sem aparecer. É menos enxuto que
+        `GET /v1/cardapio/{id}`: não traz `CondicoesDadosAdicionais`, `RegrasDataDadosAdicionais` nem
+        `MensagemFinal`.
       operationId: atividade
       x-source-controller: CardapioController.Atividade
       parameters:
@@ -1598,7 +2109,10 @@ paths:
     get:
       tags: [Catálogo]
       summary: Itens de seleção por dado adicional
-      description: Retorna valores de domínio para um dado adicional.
+      description: |
+        Retorna os valores **ativos** do domínio de um dado adicional, ordenados por texto, sem filtrar
+        por pai. Para domínios em cascata use a rota com `{idDominioPai}`. Dado adicional inexistente
+        ou sem itens: `records: []`. O controller inteiro é oculto do Swagger, mas as rotas são públicas.
       operationId: obterDominio
       x-source-controller: ItensSelecaoController.ObterDominio
       parameters:
@@ -1622,7 +2136,9 @@ paths:
     get:
       tags: [Catálogo]
       summary: Itens de seleção com filtro de domínio pai
-      description: Retorna valores de domínio filtrados por um domínio pai.
+      description: |
+        Retorna os valores ativos do domínio filtrados pelo item pai (`idDomPai = idDominioPai`). Usada
+        pelos campos dependentes (combo filho). Sem itens: `records: []`.
       operationId: obterDominioComPai
       x-source-controller: ItensSelecaoController.ObterDominio
       parameters:
@@ -1637,7 +2153,7 @@ paths:
           required: true
           schema:
             type: integer
-          description: ID do domínio pai
+          description: ID do item pai
       responses:
         '200':
           description: Valores de domínio filtrados
@@ -1652,7 +2168,15 @@ paths:
     get:
       tags: [Catálogo]
       summary: Itens de seleção (query params)
-      description: Variante com parâmetros via query string, usada pelo catálogo internamente.
+      description: |
+        Variante por query string, o endereço que o cardápio entrega em `Opcoes.Dependencia.URL`
+        (`.../itensselecao/ObterDominio?idDad=<n>&idDominioPai=idDominioPai`, em que o cliente troca o
+        texto `idDominioPai` pelo id do pai). `idDominio` é, na prática, o id do item **pai**.
+
+        Atenção: pelo roteamento, esta URL pode ser atendida pelas rotas de path
+        (`{idDad}` e `{idDad}/{idDominioPai}`). Se o filtro por pai não se comportar como esperado,
+        prefira `GET /v1/itensselecao/{idDad}/{idDominioPai}`. `idDad` ou `idDominio` ausentes
+        podem responder 404 (seleção de ação do Web API).
       operationId: obterDominioParaCardapio
       x-source-controller: ItensSelecaoController.ObterDominioParaCarapio
       parameters:
@@ -1666,6 +2190,7 @@ paths:
           required: true
           schema:
             type: integer
+          description: ID do item pai
       responses:
         '200':
           description: Valores de domínio
@@ -1684,7 +2209,12 @@ paths:
     get:
       tags: [Configuração]
       summary: Listar itens de configuração
-      description: Retorna lista paginada de ICs. Oculto do Swagger.
+      description: |
+        Retorna **todos** os ICs do ambiente em uma única resposta, **sem paginação, sem limite e sem
+        filtro**; em ambientes grandes a resposta é pesada. O `_metadata` sai com `Release`,
+        `LogAmigavel` e `MensagensErro` nulos. Cada IC traz as URLs (`https`) de `Relacoes`, `Detalhes`,
+        `Componentes`, `Associacoes`, `Usuarios`, `Relacionamentos` e `ListasPapeis`. O controller é
+        oculto do Swagger, mas as rotas são públicas.
       operationId: dashboardIcs
       x-source-controller: IcsController.Dashboard
       responses:
@@ -1701,7 +2231,13 @@ paths:
     get:
       tags: [Configuração]
       summary: Detalhes do IC
-      description: Retorna detalhes de um item de configuração com dados adicionais.
+      description: |
+        Retorna os campos do IC mais os dados adicionais dele, como objeto cru (sem envelope).
+        **Atenção:** a chave do link das relações se chama `Ralacoes` (erro de grafia no código); não
+        existe `Relacoes` neste objeto (na listagem `GET /v1/ics` a chave é `Relacoes`). Cada dado
+        adicional vira uma chave (o nome passa por um tratamento que remove espaços e os caracteres
+        `ç`, `õ` e `á`; uma chave já existente nunca é sobrescrita, então um dado chamado "Nome" é
+        descartado). IC inexistente pode resultar em HTTP 500.
       operationId: ic
       x-source-controller: IcsController.Ic
       parameters:
@@ -1712,7 +2248,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/IcDetalhe'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -1720,7 +2256,9 @@ paths:
     get:
       tags: [Configuração]
       summary: Componentes do IC
-      description: Lista componentes associados a um IC.
+      description: |
+        Lista os componentes (peças) do IC. O `_metadata` é um objeto vazio (`{}`). Não valida que o IC
+        existe; IC sem componentes devolve `records: []`.
       operationId: componentesIc
       x-source-controller: IcsController.Componentes
       parameters:
@@ -1739,7 +2277,9 @@ paths:
     get:
       tags: [Configuração]
       summary: Associações do IC
-      description: Lista ICs associados a este item de configuração.
+      description: |
+        Lista os ICs associados a este IC (relação IC-IC). Diferente de "componentes" (peças) e de
+        "relacionamentos" (árvore). O `_metadata` é um objeto vazio (`{}`).
       operationId: associacoesIc
       x-source-controller: IcsController.Associacoes
       parameters:
@@ -1758,7 +2298,9 @@ paths:
     get:
       tags: [Configuração]
       summary: Relações do IC
-      description: Retorna relações do IC (usuários, componentes e associações combinados).
+      description: |
+        Agrega usuários, componentes e associações do IC em uma chamada. Objeto cru, sem `_metadata`
+        nem `records`.
       operationId: relacoesIc
       x-source-controller: IcsController.Relacoes
       parameters:
@@ -1790,7 +2332,9 @@ paths:
     get:
       tags: [Configuração]
       summary: Usuários do IC
-      description: Lista usuários associados ao IC.
+      description: |
+        Lista os usuários vinculados ao IC pelo cadastro dele (não confundir com os membros das listas
+        de papéis). O `_metadata` é um objeto vazio (`{}`).
       operationId: usuariosIc
       x-source-controller: IcsController.Usuarios
       parameters:
@@ -1809,7 +2353,10 @@ paths:
     get:
       tags: [Configuração]
       summary: Relacionamentos do IC
-      description: Retorna o grafo de relacionamentos do IC até N níveis de profundidade.
+      description: |
+        Retorna a árvore de dependências do IC até `nivel` níveis; `IdPai` permite remontar a árvore no
+        cliente. Atenção à caixa: o campo `idPatRel` sai com inicial minúscula. O `_metadata` é um
+        objeto vazio (`{}`).
       operationId: relacionamentosIc
       x-source-controller: IcsController.Relacionamentos
       parameters:
@@ -1820,14 +2367,14 @@ paths:
           schema:
             type: integer
             default: 3
-          description: Profundidade máxima do grafo de relacionamentos
+          description: Profundidade máxima da árvore (sem validação)
       responses:
         '200':
-          description: Grafo de relacionamentos
+          description: Árvore de relacionamentos
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/RetornoApiRestGenerico'
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -1835,7 +2382,10 @@ paths:
     get:
       tags: [Configuração]
       summary: Listas de papéis do IC
-      description: Lista as listas de papéis associadas ao IC.
+      description: |
+        Lista as listas de papéis ligadas ao IC. `Detalhes` e `Membros` são as URLs (`https`) das rotas
+        seguintes. O catálogo geral de listas está em `GET /v1/listaspapeisic`. O `_metadata` é um
+        objeto vazio (`{}`).
       operationId: listasPapeisDoIc
       x-source-controller: IcsController.ListasPapeisDoIc
       parameters:
@@ -1854,7 +2404,9 @@ paths:
     get:
       tags: [Configuração]
       summary: Dados de uma lista de papéis do IC
-      description: Retorna detalhes de uma lista de papéis específica.
+      description: |
+        Retorna `Id`, `Nome`, `QuemCriou`, `QuemAlterou` (pode vir com campos nulos) e a URL dos
+        membros, como objeto cru. Lista inexistente para o IC pode resultar em HTTP 500.
       operationId: dadosDaListaDoIc
       x-source-controller: IcsController.DadosDaListaDoIc
       parameters:
@@ -1874,7 +2426,9 @@ paths:
     get:
       tags: [Configuração]
       summary: Membros de uma lista de papéis
-      description: Lista os membros de uma lista de papéis do IC.
+      description: |
+        Lista os membros da lista. `Nome` é o **nome de exibição** do usuário (`Usuario.nmUsu`), a mesma
+        chave que o `POST` desta rota usa para inserir e remover. O `_metadata` é um objeto vazio (`{}`).
       operationId: membrosDaListaDoIc
       x-source-controller: IcsController.MembrosDaListaDoIc
       parameters:
@@ -1892,7 +2446,17 @@ paths:
     post:
       tags: [Configuração]
       summary: Alterar membros de uma lista de papéis
-      description: Adiciona ou remove membros de uma lista de papéis do IC.
+      description: |
+        Insere e remove membros da lista. Cada string de `Inserir` e `Remover` é o **nome de exibição**
+        do usuário (`Usuario.nmUsu`), **não** o login nem o id. A remoção casa o nome exato em memória
+        (sensível a caixa); a inserção busca o usuário por nome. `Remover` é processado antes de
+        `Inserir`.
+
+        **Esta rota nunca devolve 406.** Nome sem correspondência não é erro: volta com HTTP 200 e
+        `Resultado: "Não encontrado"` para aquele nome. A resposta lista o resultado por nome
+        (`"Removido"`, `"Inserido"` ou `"Não encontrado"`); omitir `Remover` (ou `Inserir`) faz a chave
+        voltar `null`. Inserir quem já é membro duplica a linha; usuários inativos não são filtrados.
+        Corpo ausente ou vazio pode resultar em HTTP 500.
       operationId: alterarMembrosDaListaDoIc
       x-source-controller: IcsController.AlterarMembrosDaListaDoIc
       parameters:
@@ -1904,15 +2468,21 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AlteracoesMembros'
+            example:
+              Inserir: ["Maria Silva"]
+              Remover: ["João Souza"]
       responses:
         '200':
-          description: Membros atualizados
+          description: Resultado por nome
           content:
             application/json:
               schema:
-                type: object
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
+                $ref: '#/components/schemas/ResultadoAlteracoesMembros'
+              example:
+                Remover:
+                  - { Nome: "João Souza", Resultado: "Removido" }
+                Inserir:
+                  - { Nome: "Maria Silva", Resultado: "Inserido" }
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
@@ -1921,12 +2491,18 @@ paths:
       tags: [Configuração]
       summary: Executar consulta dinâmica
       description: |
-        Executa uma consulta SQL pré-definida na tabela `ParametroAvancado` por nome.
-        A consulta é carregada de `ConsultaSQLAPI/{nome_consulta}`.
+        Executa uma consulta SQL pré-definida no `ParametroAvancado` `ConsultaSQLAPI/{nome_consulta}`,
+        no formato `{ "Query": "<SQL>", "ParametrosInternos": ["UsuarioId"] }`. O contrato de cada
+        consulta (parâmetros e colunas) é de cada ambiente, não da API.
 
-        Parâmetros internos (ex: `usuarioid`) são injetados automaticamente e não
-        podem ser sobrescritos pelo cliente. Demais parâmetros são passados no corpo
-        da requisição como pares chave-valor.
+        O corpo precisa ser um **objeto** JSON `{}` cujas propriedades são os parâmetros SQL. Todo
+        valor é convertido para **texto** antes de ir ao SQL. Os nomes em `ParametrosInternos` (hoje
+        só `UsuarioId`) são preenchidos pelo servidor e **não podem** ser enviados pelo cliente.
+
+        A resposta tem uma entrada em `records` por conjunto de resultados da consulta, cada uma uma
+        lista de linhas (objetos coluna-valor). Erros são **HTTP 406 em texto puro**: consulta não
+        configurada, JSON inválido, corpo que não é objeto (inclui corpo vazio: "O JSON informado deve
+        ser um objeto como {}"), `Query` vazia e parâmetro interno enviado pelo cliente.
       operationId: executarQuery
       x-source-controller: ConsultasController.ExecutarQuery
       parameters:
@@ -1937,30 +2513,40 @@ paths:
             type: string
           description: Nome da consulta registrada em ParametroAvancado
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               type: object
               additionalProperties: true
-              description: Parâmetros SQL como pares chave-valor
+              description: Parâmetros SQL como pares chave-valor (o prefixo `@` é opcional)
+            example:
+              "@status": "Aberta"
       responses:
         '200':
-          description: Resultados da consulta
+          description: Resultados da consulta (uma lista de linhas por conjunto de resultados)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetornoApiRestGenerico'
-        '406':
-          $ref: '#/components/responses/ErroNegocio'
+              example:
+                _metadata: { Release: "9.8.0", LogAmigavel: [], MensagensErro: [] }
+                records:
+                  - [ { idReq: 1, dsTitulo: "x" } ]
         '401':
           $ref: '#/components/responses/NaoAutorizado'
+        '406':
+          $ref: '#/components/responses/ErroNegocio'
 
   /v1/listaspapeisic:
     get:
       tags: [Configuração]
       summary: Listar todas as listas de papéis de IC
-      description: Retorna todas as listas de papéis de IC do sistema (global, não por IC). Oculto do Swagger.
+      description: |
+        Retorna o catálogo geral de listas de papéis de IC **ativas** (não por IC; as listas de um IC
+        estão em `GET /v1/ics/{ic}/listaspapeis`). O `_metadata` sai com valores nulos. `QuemAlterou`
+        vem com campos nulos quando a lista nunca foi alterada. O controller é oculto do Swagger, mas a
+        rota é pública.
       operationId: listasDePapeisIc
       x-source-controller: ListasPapeisIcController.ListasDePapeisIc
       responses:
@@ -1973,6 +2559,10 @@ paths:
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
+  # --------------------------------------------------------------------------
+  # Notificações e Push — NotificacoesApiController, PushApiController (internos)
+  # --------------------------------------------------------------------------
+
 # ============================================================================
 # COMPONENTS
 # ============================================================================
@@ -1983,30 +2573,11 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
-      description: Token obtido via POST /v1/login/entrar
+      description: Token obtido via POST /v1/login/entrar. O servidor não expira o token; vale enquanto o usuário estiver ativo
 
   # --- Reusable Parameters ---
 
   parameters:
-    PageSize:
-      name: pageSize
-      in: query
-      required: false
-      schema:
-        type: integer
-        minimum: 1
-        default: 20
-      description: Itens por página
-    PageNumber:
-      name: pageNumber
-      in: query
-      required: false
-      schema:
-        type: integer
-        minimum: 1
-        default: 1
-      description: Número da página (1-indexed)
     RequisicaoId:
       name: requisicao
       in: path
@@ -2029,27 +2600,179 @@ components:
         type: integer
       description: ID da lista de papéis
 
+    DebugRetornarJson:
+      name: Debug
+      in: header
+      required: false
+      schema:
+        type: string
+        enum: [RetornarJson]
+      description: Com o valor `RetornarJson` a rota não grava nada e devolve o que interpretou do corpo (modo de depuração)
+
+    FiltroRequisicaoId:
+      name: RequisicaoId
+      in: query
+      required: false
+      schema:
+        type: integer
+      description: Número da requisição
+
+    FiltroAtividadeId:
+      name: AtividadeId
+      in: query
+      required: false
+      schema:
+        type: integer
+      description: Id da atividade
+
+    FiltroAtividadesIds:
+      name: AtividadesIds
+      in: query
+      required: false
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          type: integer
+      description: Ids de atividades (repita o parâmetro para vários valores)
+
+    FiltroNomeAtividade:
+      name: NomeAtividade
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Nome da atividade (busca por trecho, `LIKE %x%`)
+
+    FiltroNomeFormulario:
+      name: NomeFormulario
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Nome do formulário (busca por trecho, `LIKE %x%`)
+
+    FiltroDescricoesStatus:
+      name: DescricoesStatus
+      in: query
+      required: false
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          type: string
+      description: Descrições de status (`IN`; repita o parâmetro para vários valores)
+
+    FiltroGruposSolucionadores:
+      name: GruposSolucionadores
+      in: query
+      required: false
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          type: integer
+      description: Ids dos grupos solucionadores atuais (`IN`)
+
+    FiltroIdsFormularios:
+      name: IdsFormularios
+      in: query
+      required: false
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          type: integer
+      description: Ids de formulários (`IN`)
+
+    FiltroAssunto:
+      name: Assunto
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Assunto da requisição (igualdade exata)
+
+    FiltroAbertoEntreInicio:
+      name: AbertoEntre.Inicio
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: Início do intervalo de abertura
+
+    FiltroAbertoEntreFim:
+      name: AbertoEntre.Fim
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: Fim do intervalo de abertura
+
+    FiltroEncerradoEntreInicio:
+      name: EncerradoEntre.Inicio
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: Início do intervalo de encerramento
+
+    FiltroEncerradoEntreFim:
+      name: EncerradoEntre.Fim
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: Fim do intervalo de encerramento
+
+    FiltroLimiteRequisicoes:
+      name: LimiteRequisicoes
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 500
+      description: Máximo de requisições devolvidas (único limitador; não há paginação)
+
   # --- Reusable Responses ---
 
   responses:
     NaoAutorizado:
-      description: Token ausente ou inválido
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              _metadata:
-                $ref: '#/components/schemas/Metadata'
+      description: |
+        Não autorizado (HTTP 401, sem corpo): cabeçalho `Authorization` ausente, esquema diferente de
+        Bearer, token desconhecido ou usuário inativo. O servidor devolve `WWW-Authenticate: Basic realm="<host>"`.
+
     ErroNegocio:
-      description: Erro de negócio (ver MensagensErro)
+      description: |
+        Erro de negócio (HTTP 406). O corpo é **texto puro** (`text/plain`, `ReasonPhrase` "Critical
+        Exception"), com as mensagens separadas por quebra de linha. **Não é JSON** e não tem
+        `_metadata`. Em outros endpoints o erro de negócio volta com HTTP 200 e a mensagem no corpo;
+        veja a descrição de cada operação.
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Requisição inexistente ou usuário sem acesso"
+
+    ErroInterno:
+      description: Exceção não tratada (HTTP 500). O ASP.NET devolve o corpo com `ExceptionMessage` e `StackTrace`
       content:
         application/json:
           schema:
             type: object
             properties:
-              _metadata:
-                $ref: '#/components/schemas/Metadata'
+              Message:
+                type: string
+              ExceptionMessage:
+                type: string
 
   # --- Schemas ---
 
@@ -2074,11 +2797,13 @@ components:
       type: object
       description: |
         Envelope de resposta do login (RetornoApi<T>).
-        **Atenção:** `Dados` é uma string JSON escapada, não um objeto direto.
+        **Atenção:** `Dados` é uma string JSON escapada, não um objeto direto. Em falha, `Dados` é
+        nulo e `MensagensErro` traz o motivo (o status continua 200).
       properties:
         Dados:
           type: string
-          description: String JSON escapada contendo o token. Requer JSON.parse() para extrair.
+          nullable: true
+          description: String JSON escapada contendo o token (`access_token`, `token_type`, `expires_in`, ...). Requer JSON.parse() para extrair. Nulo em falha.
         LogAmigavel:
           type: array
           items: {}
@@ -2088,13 +2813,15 @@ components:
             type: string
         Versao:
           type: string
+          nullable: true
 
     RetornoApiObject:
       type: object
-      description: Envelope RetornoApi<object>
+      description: Envelope RetornoApi<object>. Em falha, `Dados` é nulo e `MensagensErro` traz o motivo (status 200).
       properties:
         Dados:
           type: object
+          nullable: true
         LogAmigavel:
           type: array
           items: {}
@@ -2127,13 +2854,14 @@ components:
 
     RetornoApiRestRequisicoes:
       type: object
+      description: Lista de requisições. O `_metadata` desta lista só traz `MensagensErro` e `LogAmigavel`.
       properties:
         _metadata:
           $ref: '#/components/schemas/Metadata'
         records:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/RequisicaoListItem'
 
     RetornoApiRestPerfilUsuario:
       type: object
@@ -2142,39 +2870,85 @@ components:
           $ref: '#/components/schemas/Metadata'
         records:
           type: array
+          description: Um único record (vazio se o usuário não for encontrado)
           items:
             type: object
             properties:
-              usuarioId:
+              UsuarioId:
                 type: integer
-              login:
+                format: int64
+              Login:
                 type: string
-              dominio:
+              Dominio:
                 type: string
-              nome:
+                nullable: true
+              Nome:
                 type: string
-              ramal:
+              Ramal:
                 type: string
-              email:
+                nullable: true
+              Email:
                 type: string
-              perfilId:
+                nullable: true
+              PerfilId:
                 type: integer
-              perfilNome:
+              PerfilNome:
                 type: string
-              empresaId:
+                nullable: true
+              Estacao:
+                type: string
+                nullable: true
+              Matricula:
+                type: string
+                nullable: true
+              Fone:
+                type: string
+                nullable: true
+              Celular:
+                type: string
+                nullable: true
+              CPF:
+                type: string
+                nullable: true
+              EmpresaId:
                 type: integer
-              empresaNome:
+                nullable: true
+              EmpresaCNPJ:
                 type: string
-              cargoId:
+                nullable: true
+              EmpresaNome:
+                type: string
+                nullable: true
+              CargoId:
                 type: integer
-              cargoNome:
+                nullable: true
+              CargoNome:
                 type: string
-              superiorHierarquicoId:
+                nullable: true
+              SuperiorHierarquicoId:
                 type: integer
-              superiorHierarquicoNome:
+                nullable: true
+              SuperiorHierarquicoNome:
                 type: string
-              superiorHierarquicoEmail:
+                nullable: true
+              SuperiorHierarquicoEmail:
                 type: string
+                nullable: true
+              SuperiorAlternativoId:
+                type: integer
+                nullable: true
+              SuperiorAlternativoNome:
+                type: string
+                nullable: true
+              SuperiorAlternativoEmail:
+                type: string
+                nullable: true
+              Cliente:
+                type: boolean
+                nullable: true
+              Fornecedor:
+                type: boolean
+                nullable: true
 
     RetornoApiRestAreaVM:
       type: object
@@ -2234,22 +3008,38 @@ components:
 
     UsuarioVM:
       type: object
-      description: Dados básicos do usuário (retornado sem envelope)
+      description: Dados básicos do usuário (retornado sem envelope; nomes em PascalCase)
       properties:
-        id:
-          type: integer
-        login:
+        Login:
           type: string
-        nome:
+        Id:
+          type: integer
+          format: int64
+        Nome:
           type: string
 
-    DadosLicencaVM:
+    AlterarSenhaApiVM:
       type: object
+      required: [SenhaAtual, NovaSenha]
       properties:
-        DataVencimento:
+        SenhaAtual:
           type: string
-          format: date-time
-          nullable: true
+        NovaSenha:
+          type: string
+
+    RetornoApiRestSucesso:
+      type: object
+      description: 'Envelope cujo único record é `{ "Sucesso": true }`'
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            type: object
+            properties:
+              Sucesso:
+                type: boolean
 
     DashboardResponse:
       type: object
@@ -2265,7 +3055,9 @@ components:
 
     FiltrosRequisicoes:
       type: object
-      description: Filtros para listagem de requisições
+      description: |
+        Filtros para listagem de requisições. No `GET` os campos entram como parâmetros de query sem
+        prefixo; no `POST`, no corpo. Não há paginação: o limitador é `LimiteRequisicoes`.
       properties:
         RequisicaoId:
           type: integer
@@ -2273,6 +3065,16 @@ components:
         AtividadeId:
           type: integer
           nullable: true
+        AtividadesIds:
+          type: array
+          items:
+            type: integer
+        NomeAtividade:
+          type: string
+          description: Busca por trecho
+        NomeFormulario:
+          type: string
+          description: Busca por trecho
         DescricoesStatus:
           type: array
           items:
@@ -2287,6 +3089,7 @@ components:
           $ref: '#/components/schemas/IntervaloDatas'
         Assunto:
           type: string
+          description: Igualdade exata com o assunto
         IdsFormularios:
           type: array
           items:
@@ -2296,11 +3099,37 @@ components:
           default: 500
         DadosAdicionais:
           type: object
-          description: Mapa aninhado de filtros por dado adicional
+          description: |
+            Mapa aninhado de filtros por dado adicional (prático só via POST). `ValorFinal` filtra
+            `data <= valor`; `ValoresTexto` casa por igualdade com OR entre os valores; os dois juntos
+            fazem OR.
           additionalProperties:
             type: object
             additionalProperties:
               $ref: '#/components/schemas/WMFiltroDadoAdicional'
+
+    RequisicaoSumario:
+      type: object
+      description: Resumo de requisição devolvido por `POST /v1/requisicoes/busca`
+      properties:
+        Id:
+          type: integer
+        FormularioId:
+          type: integer
+        Status:
+          type: string
+        Assunto:
+          type: string
+        Atividade:
+          type: string
+        Categoria:
+          type: string
+        SubCategoria:
+          type: string
+        Descricao:
+          type: string
+        Responsavel:
+          type: string
 
     FiltrosRequisicoesSimples:
       type: object
@@ -2308,10 +3137,12 @@ components:
       properties:
         Ids:
           type: array
+          description: Sem efeito (ignorado pelo servidor)
           items:
             type: integer
         DescricaoOuAssunto:
           type: string
+          description: Termo de busca (vazio se omitido)
 
     VMFiltrosRequisicoesAvancado:
       type: object
@@ -2443,12 +3274,14 @@ components:
       description: |
         Detalhes completos de uma requisição. Retornado diretamente (sem envelope RetornoApiRest).
         O campo Conjuntos é um dicionário (não array): chave = nome da seção, valor = campos com valores.
+        Em erro de acesso, só `MensagensErro` vem preenchido e `Conjuntos` é nulo (HTTP 200).
       properties:
         Conjuntos:
           type: object
+          nullable: true
           description: |
             Dados da requisição organizados por seção. Estrutura:
-            `{ "Detalhes Do Pedido": { "Assunto": "...", "Status": "..." }, "Agendamento do Pedido": { ... }, "Participantes": { ... }, "IdsParticipantes": { "REG": { "IdTipoPapel": 1, "IdParticipante": 123 } } }`
+            `{ "Detalhes Do Pedido": { "Assunto": "...", "Status": "...", "Anexos": [ ... ] }, "Agendamento do Pedido": { ... }, "Participantes": { ... }, "IdsParticipantes": { "REG": { "IdTipoPapel": 1, "IdParticipante": 123 } } }`
           additionalProperties: true
         UrlDadosAdicionais:
           type: string
@@ -2462,6 +3295,183 @@ components:
           type: array
           items:
             type: string
+        Tempos:
+          type: object
+          description: Tempos da requisição, em minutos (`TempoResposta`, `TempoAtivo`, `TempoCongelado` e variantes `...Cal`)
+          additionalProperties: true
+
+    AnexoRequisicao:
+      type: object
+      description: Anexo já gravado na requisição
+      properties:
+        Id:
+          type: integer
+          description: idDoc, usado em `GET .../anexos/{idDoc}`
+        IdAnexoOriginal:
+          type: integer
+          nullable: true
+        Versao:
+          type: integer
+        Requisicao:
+          type: integer
+        idReqPartOwner:
+          type: integer
+          nullable: true
+        Invalido:
+          type: boolean
+        Inline:
+          type: boolean
+        Publico:
+          type: boolean
+        NomeUsuario:
+          type: string
+        idFrmTpDoc:
+          type: integer
+          nullable: true
+        NomeTipoDocumento:
+          type: string
+          nullable: true
+        idFlu:
+          type: integer
+          nullable: true
+        Excluido:
+          type: boolean
+        UrlDownload:
+          type: string
+          description: URL absoluta de `GET .../anexos/{idDoc}`
+        DataInclusao:
+          type: string
+          format: date-time
+        Titulo:
+          type: string
+        NomeDocumentoFisico:
+          type: string
+
+    RetornoApiRestAnexos:
+      type: object
+      description: O `_metadata` desta resposta só tem `MensagensErro`
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnexoRequisicao'
+
+    VMSubmissao:
+      type: object
+      description: Corpo de `POST .../anexos/submeter` (passo 2 do anexo)
+      required: [CodigoAcao, Anexos]
+      properties:
+        CodigoAcao:
+          type: string
+          description: Código da ação "anexar documento" do formulário (normalmente `ANDOC`)
+          example: ANDOC
+        Anexos:
+          type: array
+          items:
+            type: object
+            required: [Id, NomeDuranteUpload]
+            properties:
+              Id:
+                type: string
+                description: GUID devolvido pelo passo 1 (`POST .../anexo` ou `POST /v1/requisicoes/Upload`)
+              NomeDuranteUpload:
+                type: string
+                description: Nome do arquivo COM extensão (valida a extensão e vira o nome físico). Também aceito como `Nome`
+              Titulo:
+                type: string
+                description: Título exibido do documento
+
+    AcaoDisponivel:
+      type: object
+      properties:
+        Nome:
+          type: string
+        Id:
+          type: string
+          description: '`"<Descrição> [<CÓDIGO>]"`; é o valor aceito no `Id` de `POST .../acoes`'
+          example: "Encerrar [ENC]"
+        CodigoAcao:
+          type: string
+        FormularioId:
+          type: integer
+        FormularioAcaoId:
+          type: integer
+        Icone:
+          type: string
+          nullable: true
+        Campos:
+          type: array
+          description: Campos que a ação aceita (`Chave` é o nome do campo no corpo da execução). `Apresentacao` pode ser `Radio` ou `Search`.
+          items:
+            $ref: '#/components/schemas/Campo'
+
+    RetornoApiRestAcoes:
+      type: object
+      description: O `_metadata` desta resposta vem vazio (`{}`)
+      properties:
+        _metadata:
+          type: object
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/AcaoDisponivel'
+
+    RetornoApiRestVinculadas:
+      type: object
+      description: O `_metadata` desta resposta vem vazio (`{}`)
+      properties:
+        _metadata:
+          type: object
+        records:
+          type: array
+          items:
+            type: object
+            properties:
+              RequisicaoId:
+                type: integer
+              TipoVinculoId:
+                type: integer
+              TipoVinculo:
+                type: string
+
+    RetornoApiRestPesquisasPendentes:
+      type: object
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          items:
+            type: object
+            properties:
+              PesquisaId:
+                type: integer
+              IdRequisicao:
+                type: integer
+              NumeroRequisicao:
+                type: string
+              Assunto:
+                type: string
+              Anonima:
+                type: boolean
+              ResponderMaisDeUmaVez:
+                type: boolean
+
+    RetornoApiRestRequisicaoAberta:
+      type: object
+      properties:
+        _metadata:
+          $ref: '#/components/schemas/Metadata'
+        records:
+          type: array
+          description: Vazio se a abertura não devolveu id
+          items:
+            type: object
+            properties:
+              IdRequisicaoAberta:
+                type: string
 
     RequisicaoListItem:
       type: object
@@ -2585,12 +3595,16 @@ components:
 
     VMExecutarAcaoApi:
       type: object
-      description: Dados para execução de uma ação de workflow
+      description: Dados para execução de uma ação de workflow. Consulte `GET .../acoes` para saber os campos de cada ação.
       required: [Id]
       properties:
         Id:
           type: string
-          description: Identificador da ação no formato "Nome [CODIGO]" (ex. "Encerrar [ENC]")
+          description: |
+            Identificador da ação **com o código entre colchetes**: `"[ENC]"` ou `"Encerrar [ENC]"`
+            (ação de usuário: `[USU<n>]`). `"ENC"` sozinho resulta em "Ação não encontrada" (HTTP 200).
+            Use o `Id` devolvido por `GET .../acoes`.
+          example: "Encerrar [ENC]"
         Descricao:
           type: string
           description: Descrição/comentário da ação
@@ -2598,10 +3612,10 @@ components:
           type: integer
           format: int16
           nullable: true
-          description: Nova prioridade (usado com ALTPRI)
+          description: Nova prioridade (ALTPRI; 1 Alta, 2 Média, 3 Baixa)
         ConjuntosDadosAdicionais:
           type: object
-          description: Dados adicionais para atualizar junto com a ação
+          description: Dados adicionais para atualizar junto com a ação (um nível; cada conjunto vira o item "1")
           additionalProperties:
             type: object
             additionalProperties: true
@@ -2611,15 +3625,15 @@ components:
           description: ID da requisição a vincular (usado com VINC)
         Data:
           type: string
-          description: Data da ação
+          description: Data/hora informada (aceita por `DateTime.TryParse`); inválida resulta em "Data inválida" (HTTP 200)
         Motivo:
           type: integer
           format: int16
           nullable: true
-          description: ID do motivo (usado com ENC)
+          description: ID do motivo (obrigatório se a ação tem motivos)
         NovoSolicitado:
           type: string
-          description: ID do novo solicitado (usado com DIR)
+          description: Para DIR, o `Id` de `GET .../acoes/DIR/grupos`
         DescricaoRequisicao:
           type: string
           description: Nova descrição da requisição (usado com ALTDES)
@@ -2641,6 +3655,15 @@ components:
           type: boolean
           nullable: true
           description: Se deve manter o grupo atual (usado com DIR)
+        tipoAvaliacao:
+          type: integer
+          nullable: true
+          description: Avaliação para ENC/AVAL (1 acima, 2 conforme, 3 abaixo do esperado)
+        usuResponsavelId:
+          type: integer
+          format: int64
+          nullable: true
+          description: Responsável para ATR/ATRR (veja `GET .../acoes/{codigoAcao}/usuarios-responsaveis`)
 
     VMAbrirRequisicao:
       type: object
@@ -2662,33 +3685,6 @@ components:
             Valor: objeto com chave do campo → valor preenchido.
           additionalProperties: true
 
-    VMAbrirRequisicaoViaPortal:
-      type: object
-      description: |
-        Dados para abertura de requisição via portal (catálogo).
-        Usa IdItemCardapio em vez de Formulario.
-      required: [IdItemCardapio]
-      properties:
-        IdItemCardapio:
-          type: integer
-          format: int64
-          description: ID do item do catálogo (cardápio)
-        IdRascunho:
-          type: integer
-          format: int64
-          description: ID do rascunho (0 se não houver)
-        Conjuntos:
-          type: object
-          description: |
-            Dados organizados por conjunto. Estrutura:
-            `{ "NomeConjunto": [{ "ChaveCampo": valor, ... }] }`
-            O valor é um array de objetos (mesmo para conjuntos não-múltiplos).
-          additionalProperties:
-            type: array
-            items:
-              type: object
-              additionalProperties: true
-
     DesdobrarRequisicaoVM:
       type: object
       description: Dados para desdobramento de requisição. Herda de VMAbrirRequisicao.
@@ -2703,9 +3699,15 @@ components:
 
     UploadVM:
       type: object
+      description: |
+        Resposta do passo 1 do anexo (`POST .../anexo` ou `POST /v1/requisicoes/Upload`). Objeto cru,
+        sem envelope. **`Id` é uma string (GUID)**, não um inteiro: identifica o arquivo na pasta
+        temporária e só serve para `POST .../anexos/submeter` (ou para abrir requisição com anexo).
+        Não é o id do documento.
       properties:
         Id:
-          type: integer
+          type: string
+          description: GUID do arquivo temporário (vazio em falha)
         MensagensErro:
           type: array
           items:
@@ -2968,6 +3970,37 @@ components:
               type: integer
             Nome:
               type: string
+        Numero:
+          type: string
+          nullable: true
+        Descricao:
+          type: string
+          nullable: true
+        Localizacao:
+          type: object
+          nullable: true
+          properties:
+            Id:
+              type: integer
+            Nome:
+              type: string
+        Marca:
+          type: object
+          nullable: true
+          properties:
+            Id:
+              type: integer
+            Nome:
+              type: string
+        Serie:
+          type: string
+          nullable: true
+        Aluguel:
+          type: boolean
+          nullable: true
+        Ativo:
+          type: boolean
+          nullable: true
         Status:
           type: object
           properties:
@@ -2975,6 +4008,106 @@ components:
               type: integer
             Nome:
               type: string
+        Versao:
+          type: string
+          nullable: true
+        Hierarquia:
+          type: object
+          nullable: true
+          properties:
+            Id:
+              type: integer
+            Nome:
+              type: string
+            CentroCusto:
+              type: string
+        Responsavel:
+          type: object
+          nullable: true
+          properties:
+            Id:
+              type: integer
+            Nome:
+              type: string
+            DesdeDe:
+              type: string
+              format: date-time
+        GrupoDeAcesso:
+          type: object
+          nullable: true
+          properties:
+            Id:
+              type: integer
+            Nome:
+              type: string
+        Criticidade:
+          type: integer
+          nullable: true
+        ValorDaCompra:
+          type: number
+          nullable: true
+        DataDeEntrada:
+          type: string
+          format: date-time
+          nullable: true
+        DataDeSaida:
+          type: string
+          format: date-time
+          nullable: true
+        Garantia:
+          type: string
+          format: date-time
+          nullable: true
+        DataDaCompra:
+          type: string
+          format: date-time
+          nullable: true
+        Relacoes:
+          type: string
+          description: URL (https) de `GET /v1/ics/{ic}/relacoes`
+        Detalhes:
+          type: string
+          description: URL (https) de `GET /v1/ics/{ic}`
+        Componentes:
+          type: string
+        Associacoes:
+          type: string
+        Usuarios:
+          type: string
+        Relacionamentos:
+          type: string
+        ListasPapeis:
+          type: string
+
+    IcDetalhe:
+      type: object
+      description: |
+        Detalhe do IC (objeto dinâmico, sem envelope). Tem os mesmos campos de `IcVM`, com uma
+        diferença: o link das relações se chama **`Ralacoes`** (grafia do código), não `Relacoes`. Depois
+        das chaves fixas vem uma chave por dado adicional do IC.
+      additionalProperties: true
+      properties:
+        Id:
+          type: integer
+        Nome:
+          type: string
+        NomeCompleto:
+          type: string
+        Ralacoes:
+          type: string
+          description: URL (https) de `GET /v1/ics/{ic}/relacoes` (note a grafia `Ralacoes`)
+        Detalhes:
+          type: string
+        Componentes:
+          type: string
+        Associacoes:
+          type: string
+        Usuarios:
+          type: string
+        Relacionamentos:
+          type: string
+        ListasPapeis:
+          type: string
 
     Valor:
       type: object
@@ -3005,23 +4138,153 @@ components:
           type: integer
         Nome:
           type: string
+        QuemCriou:
+          type: object
+          properties:
+            Id:
+              type: integer
+            Nome:
+              type: string
+            Data:
+              type: string
+              format: date-time
+        QuemAlterou:
+          type: object
+          description: Campos nulos quando a lista nunca foi alterada
+          properties:
+            Id:
+              type: integer
+              nullable: true
+            Nome:
+              type: string
+              nullable: true
+            Data:
+              type: string
+              format: date-time
+              nullable: true
 
     AlteracoesMembros:
       type: object
-      description: Alterações de membros de uma lista de papéis
+      description: |
+        Alterações de membros de uma lista de papéis. Cada string é o **nome de exibição** do usuário
+        (`Usuario.nmUsu`), **não** o login nem o id.
       properties:
         Remover:
           type: array
-          description: IDs dos membros a remover
+          description: Nomes de exibição dos membros a remover (processado antes de `Inserir`)
           items:
             type: string
         Inserir:
           type: array
-          description: IDs dos membros a inserir
+          description: Nomes de exibição dos usuários a inserir
           items:
             type: string
 
-    # --- Supporting Types ---
+    ResultadoAlteracoesMembros:
+      type: object
+      description: Resultado por nome; uma chave omitida no corpo da chamada volta `null`
+      properties:
+        Remover:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ResultadoMembro'
+        Inserir:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/ResultadoMembro'
+
+    ResultadoMembro:
+      type: object
+      properties:
+        Nome:
+          type: string
+        Resultado:
+          type: string
+          enum: [Removido, Inserido, Não encontrado]
+
+    ItemCardapioVM:
+      type: object
+      description: |
+        Formulário de abertura de um item do catálogo. Em erro (item inexistente ou mensagens), vêm
+        apenas `LogAmigavel` e `MensagensErro` (HTTP 200).
+      properties:
+        LogAmigavel:
+          type: array
+          items: {}
+        MensagensErro:
+          type: array
+          items:
+            type: string
+        ExtensoesNaoPermitidas:
+          type: string
+          description: Extensões não permitidas em anexos, **uma string separada por vírgula, sem pontos** (não é array)
+          example: "asp,aspx,js,exe,vbs,bat"
+        Formulario:
+          type: integer
+        Conjuntos:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConjuntoMesclado'
+        DescricaoParaAnexarDocumentos:
+          type: string
+          nullable: true
+        Descricao_Conjunto_Anexos:
+          type: string
+          nullable: true
+        MensagemFinal:
+          type: string
+          nullable: true
+        CondicoesDadosAdicionais:
+          type: array
+          items:
+            type: object
+            properties:
+              DadoAdicionalId1:
+                type: integer
+              Operacao:
+                type: string
+              DadoAdicionalId2:
+                type: integer
+        RegrasDataDadosAdicionais:
+          type: array
+          items:
+            type: object
+            properties:
+              DadoAdicionalId:
+                type: integer
+              Regra:
+                type: string
+              Dias:
+                type: integer
+
+    CategoriaCardapioVM:
+      type: object
+      properties:
+        Id:
+          type: integer
+          format: int64
+        Nome:
+          type: string
+        Imagem:
+          type: string
+          nullable: true
+        Itens:
+          type: array
+          nullable: true
+          description: Nulo (não lista vazia) quando a categoria não tem itens
+          items:
+            type: object
+            properties:
+              Id:
+                type: integer
+                format: int64
+              Nome:
+                type: string
+              URL:
+                type: string
+                description: URL de `GET /v1/cardapio/{id}`
 
     IntervaloDatas:
       type: object

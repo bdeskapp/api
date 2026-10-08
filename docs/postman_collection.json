@@ -2,7 +2,7 @@
     "info": {
         "_postman_id": "b5d4d25f-5b7a-47e7-a85d-9c68f0fb5c5c",
         "name": "BDesk API",
-        "description": "Coleção completa da API REST BDesk com todos os 70 endpoints organizados em 4 domínios.\n\nAntes de usar, configure as variáveis:\n- baseUrl: URL base da API (ex: https://cliente.bdesk.com.br/askrest)\n- bearerToken: Token JWT obtido via POST /v1/login/entrar",
+        "description": "Coleção da API REST BDesk. Os endpoints ficam organizados em pastas por domínio.\n\nAntes de usar, configure as variáveis:\n- baseUrl: URL base da API (ex: https://cliente.bdesk.com.br/askrest)\n- bearerToken: Token JWT obtido via POST /v1/login/entrar\n- anexoId: preenchida automaticamente pelo request Anexar Arquivo e usada em Submeter Anexos",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "item": [
@@ -105,31 +105,7 @@
                     "response": []
                 },
                 {
-                    "name": "Licença (GET)",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/usuarios/licenca",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "usuarios", "licenca"]
-                        },
-                        "description": "Endpoint GET intencionalmente desabilitado. Retorna mensagem orientando uso do método POST com DataVencimento."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Gerar Licença",
+                    "name": "Alterar Senha",
                     "request": {
                         "auth": {
                             "type": "bearer",
@@ -148,16 +124,16 @@
                                 "value": "application/json"
                             }
                         ],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/usuarios/alterar-senha",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "usuarios", "alterar-senha"]
+                        },
+                        "description": "Altera a senha do usuário autenticado (apenas login nativo do banco). Sucesso: 200 com records [{\"Sucesso\":true}]. Erros respondem 406 com texto, uma mensagem por linha: senha atual incorreta, senha nova fraca (regra REGRA_FORTE_SENHA_BANCO), dados não informados.",
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"DataVencimento\": \"2025-12-31T00:00:00\"\n}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/usuarios/licenca",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "usuarios", "licenca"]
-                        },
-                        "description": "Gera ou valida uma licença do sistema. Requer permissões administrativas e que a empresa de instalação seja autorizada."
+                            "raw": "{\n  \"SenhaAtual\": \"senha-atual\",\n  \"NovaSenha\": \"NovaSenha#2026\"\n}"
+                        }
                     },
                     "response": []
                 }
@@ -207,21 +183,21 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abertas?pageSize=20&pageNumber=1",
+                            "raw": "{{baseUrl}}/v1/requisicoes/abertas?DescricoesStatus=Em Atendimento&LimiteRequisicoes=100",
                             "host": ["{{baseUrl}}"],
                             "path": ["v1", "requisicoes", "abertas"],
                             "query": [
                                 {
-                                    "key": "pageSize",
-                                    "value": "20"
+                                    "key": "DescricoesStatus",
+                                    "value": "Em Atendimento"
                                 },
                                 {
-                                    "key": "pageNumber",
-                                    "value": "1"
+                                    "key": "LimiteRequisicoes",
+                                    "value": "100"
                                 }
                             ]
                         },
-                        "description": "Lista paginada de requisições abertas. Parâmetros: pageSize (padrão 20, máx 100), pageNumber (1-indexed)."
+                        "description": "Lista as requisições abertas do usuário. Não há paginação: o limite é LimiteRequisicoes (padrão 500, vira TOP n). Filtros de FiltrosRequisicoes na query: RequisicaoId, AtividadeId, NomeAtividade, NomeFormulario, DescricoesStatus (repetível), GruposSolucionadores, IdsFormularios, Assunto (igualdade exata), AbertoEntre.Inicio/Fim, LimiteRequisicoes. Resposta: {_metadata:{MensagensErro,LogAmigavel},records:[...]}."
                     },
                     "response": []
                 },
@@ -247,14 +223,14 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"TextSearch\": \"termo de busca\",\n  \"pageSize\": 20,\n  \"pageNumber\": 1\n}"
+                            "raw": "{\n  \"DescricoesStatus\": [\n    \"Em Atendimento\"\n  ],\n  \"LimiteRequisicoes\": 100,\n  \"AbertoEntre\": {\n    \"Inicio\": \"2026-01-01\",\n    \"Fim\": \"2026-12-31\"\n  }\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/abertas",
                             "host": ["{{baseUrl}}"],
                             "path": ["v1", "requisicoes", "abertas"]
                         },
-                        "description": "Variante POST para filtros avançados em requisições abertas. Aceita FiltrosRequisicoes no corpo."
+                        "description": "Mesmos filtros do GET abertas, enviados no corpo (FiltrosRequisicoes), mais DadosAdicionais: {\"<conjunto>\":{\"<dado>\":{\"ValorFinal\":\"yyyy-MM-dd\",\"ValoresTexto\":[\"a\"]}}}. Não há paginação: use LimiteRequisicoes (padrão 500)."
                     },
                     "response": []
                 },
@@ -274,21 +250,21 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/encerradas?pageSize=20&pageNumber=1",
+                            "raw": "{{baseUrl}}/v1/requisicoes/encerradas?DescricoesStatus=Em Atendimento&LimiteRequisicoes=100",
                             "host": ["{{baseUrl}}"],
                             "path": ["v1", "requisicoes", "encerradas"],
                             "query": [
                                 {
-                                    "key": "pageSize",
-                                    "value": "20"
+                                    "key": "DescricoesStatus",
+                                    "value": "Em Atendimento"
                                 },
                                 {
-                                    "key": "pageNumber",
-                                    "value": "1"
+                                    "key": "LimiteRequisicoes",
+                                    "value": "100"
                                 }
                             ]
                         },
-                        "description": "Lista paginada de requisições encerradas (fechadas). Parâmetros: pageSize (padrão 20, máx 100), pageNumber (1-indexed)."
+                        "description": "Lista as requisições encerradas do usuário. Não há paginação: o limite é LimiteRequisicoes (padrão 500, vira TOP n). Filtros de FiltrosRequisicoes na query: RequisicaoId, AtividadeId, NomeAtividade, NomeFormulario, DescricoesStatus (repetível), GruposSolucionadores, IdsFormularios, Assunto (igualdade exata), AbertoEntre.Inicio/Fim, EncerradoEntre.Inicio/Fim, LimiteRequisicoes. Resposta: {_metadata:{MensagensErro,LogAmigavel},records:[...]}."
                     },
                     "response": []
                 },
@@ -314,14 +290,14 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"TextSearch\": \"termo de busca\",\n  \"pageSize\": 20,\n  \"pageNumber\": 1\n}"
+                            "raw": "{\n  \"LimiteRequisicoes\": 100,\n  \"EncerradoEntre\": {\n    \"Inicio\": \"2026-01-01\",\n    \"Fim\": \"2026-12-31\"\n  }\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/encerradas",
                             "host": ["{{baseUrl}}"],
                             "path": ["v1", "requisicoes", "encerradas"]
                         },
-                        "description": "Variante POST para filtros avançados em requisições encerradas. Aceita FiltrosRequisicoes no corpo."
+                        "description": "Mesmos filtros do GET encerradas, enviados no corpo (FiltrosRequisicoes). Não há paginação: use LimiteRequisicoes (padrão 500)."
                     },
                     "response": []
                 },
@@ -347,7 +323,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"TextSearch\": \"termo de busca\",\n  \"UserId\": 123,\n  \"StartDate\": \"2025-01-01T00:00:00Z\",\n  \"EndDate\": \"2025-12-31T00:00:00Z\"\n}"
+                            "raw": "{\n  \"Assunto\": \"fibra\",\n  \"AbertasDesde\": \"2026-01-01\",\n  \"AbertasAte\": \"2026-12-31\",\n  \"Solicitantes\": [\n    {\n      \"Participante\": 10,\n      \"TipoPapel\": 1\n    }\n  ]\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/busca?maximoPorSituacao=100",
@@ -361,7 +337,7 @@
                                 }
                             ]
                         },
-                        "description": "Pesquisa avançada de requisições abertas e encerradas. Aceita VMFiltrosRequisicoesAvancado no corpo. Query param maximoPorSituacao controla limite por situação."
+                        "description": "Busca avançada (VMFiltrosRequisicoesAvancado). Campos: Requisicao, Area, Formulario, DadosAdicionais, Categoria, Subcategoria, Tarefa, Localizacao, Assunto, AbertasDesde/AbertasAte, EncerradasDesde/EncerradasAte, UltimaAcaoExecutada_Id/Desde/Ate e listas {Participante,TipoPapel} em Solicitantes, Solicitados, Responsaveis, Beneficiados, Registradores e ICs. Query maximoPorSituacao (padrão 100). Resposta: array cru de sumários (Id, FormularioId, Status, Assunto, ...), sem envelope."
                     },
                     "response": []
                 },
@@ -387,7 +363,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"TextSearch\": \"\"\n}"
+                            "raw": "{\n  \"DescricaoOuAssunto\": \"\"\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/porcondicao/:condicao/:quantidade",
@@ -396,7 +372,7 @@
                             "variable": [
                                 {
                                     "key": "condicao",
-                                    "value": "atrasadas",
+                                    "value": "Abertas",
                                     "description": "Condição de filtro"
                                 },
                                 {
@@ -406,7 +382,7 @@
                                 }
                             ]
                         },
-                        "description": "Retorna requisições filtradas por condição com limite de quantidade. Aceita FiltrosRequisicoesSimples no corpo."
+                        "description": "Lista requisições por condição. A condição na URL deve ser uma de: Abertas, Assumidas, Aprovacao, Congeladas, Acompanhar, Solicitei, Avaliar, Encerradas (Concluidas NÃO é tratada). quantidade = máximo de linhas. Corpo: FiltrosRequisicoesSimples; só DescricaoOuAssunto tem efeito (envie ao menos {}: corpo ausente causa 500)."
                     },
                     "response": []
                 },
@@ -504,6 +480,37 @@
                     "response": []
                 },
                 {
+                    "name": "Tarefas",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/tarefas",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "tarefas"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                }
+                            ]
+                        },
+                        "description": "Lista as tarefas simples da requisição. Resposta: envelope {_metadata,records}."
+                    },
+                    "response": []
+                },
+                {
                     "name": "Histórico",
                     "request": {
                         "auth": {
@@ -535,7 +542,7 @@
                     "response": []
                 },
                 {
-                    "name": "Adicionar Histórico",
+                    "name": "Histórico Filtrado",
                     "request": {
                         "auth": {
                             "type": "bearer",
@@ -556,7 +563,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Descricao\": \"Comentário adicionado ao histórico\"\n}"
+                            "raw": "{\n  \"CdAcao\": [\n    \"ENC\",\n    \"DIR\"\n  ]\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/historico",
@@ -570,7 +577,7 @@
                                 }
                             ]
                         },
-                        "description": "Retorna histórico filtrado com critérios no corpo da requisição. Aceita FiltrosHistorico."
+                        "description": "Devolve o histórico da requisição filtrado (FiltrosHistorico: IdAcao[], IdFrmAcao[], CdAcao[]). NÃO adiciona nada ao histórico: a rota só consulta. Corpo vazio ou null equivale a sem filtro (igual ao GET historico)."
                     },
                     "response": []
                 },
@@ -627,7 +634,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Id\": \"ENC\",\n  \"Descricao\": \"Requisição atendida com sucesso.\"\n}"
+                            "raw": "{\n  \"Id\": \"[ENC]\",\n  \"Descricao\": \"Requisição atendida com sucesso.\",\n  \"tipoAvaliacao\": 2\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/acoes",
@@ -641,7 +648,7 @@
                                 }
                             ]
                         },
-                        "description": "Executa uma ação de workflow na requisição (VMExecutarAcaoApi). O campo Id é o código da ação (ex: ENC, DIR, ATR, RECAT). Campos adicionais dependem da ação."
+                        "description": "Executa uma ação de workflow na requisição (VMExecutarAcaoApi). O campo Id deve trazer o código da ação ENTRE COLCHETES, como \"[ENC]\" ou \"Encerrar [ENC]\" (outros códigos: [DIR], [ATR], [RECAT]). Sem colchetes (\"ENC\") a resposta é 200 com a mensagem \"Ação não encontrada\". Atenção: falhas de negócio também voltam com HTTP 200; confira _metadata.MensagensErro. Campos adicionais dependem da ação. Para [ENC], tipoAvaliacao é obrigatório; sem ele a resposta é 200 com MensagensErro."
                     },
                     "response": []
                 },
@@ -673,6 +680,48 @@
                             ]
                         },
                         "description": "Lista os grupos disponíveis como destino para a ação DIR (Direcionar) na requisição."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Usuários Responsáveis",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/acoes/:codigoAcao/usuarios-responsaveis?formularioId=1",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "acoes", ":codigoAcao", "usuarios-responsaveis"],
+                            "query": [
+                                {
+                                    "key": "formularioId",
+                                    "value": "1"
+                                }
+                            ],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                },
+                                {
+                                    "key": "codigoAcao",
+                                    "value": "ATR",
+                                    "description": "ATR ou ATRR"
+                                }
+                            ]
+                        },
+                        "description": "Lista os usuários que podem ser responsáveis na ação de atribuição. codigoAcao: ATR ou ATRR. Query obrigatória formularioId (use o valor da URL do campo \"Responsável\" em GET acoes). Use o Id devolvido como usuResponsavelId em POST acoes. Sem formularioId: 404."
                     },
                     "response": []
                 },
@@ -779,6 +828,42 @@
                     "response": []
                 },
                 {
+                    "name": "Baixar Anexo",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/anexos/:idDoc",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "anexos", ":idDoc"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição"
+                                },
+                                {
+                                    "key": "idDoc",
+                                    "value": "1",
+                                    "description": "Id do documento, vindo de GET anexos"
+                                }
+                            ]
+                        },
+                        "description": "Baixa o arquivo anexado. Resposta binária (sem JSON nem envelope), com Content-Type deduzido da extensão e Content-Disposition: attachment; filename=<nome físico>. No Postman use \"Send and Download\"."
+                    },
+                    "response": []
+                },
+                {
                     "name": "Anexar Arquivo",
                     "request": {
                         "auth": {
@@ -816,7 +901,56 @@
                                 }
                             ]
                         },
-                        "description": "Faz upload de um arquivo como anexo da requisição. Content-Type: multipart/form-data. Nota: rota usa /anexo (singular)."
+                        "description": "PASSO 1 DE 2 para anexar um arquivo. Envia o arquivo (multipart/form-data) para a pasta temporária e devolve {\"Id\":\"<GUID>\",\"MensagensErro\":[]}. O Id é um GUID (texto), não um id de documento. Este passo NÃO anexa nada à requisição: a resposta 200 não prova que o anexo existe. Para concluir, use o request \"Submeter Anexos\" (passo 2), que recebe esse Id. Nota: a rota usa /anexo (singular). O script de teste guarda o Id na variável de coleção anexoId."
+                    },
+                    "response": [],
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": ["try {", "  var j = pm.response.json();", "  if (j && j.Id) { pm.collectionVariables.set(\"anexoId\", j.Id); }", "} catch (e) {}"]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "Submeter Anexos",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/anexos/submeter",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", ":requisicao", "anexos", "submeter"],
+                            "variable": [
+                                {
+                                    "key": "requisicao",
+                                    "value": "12345",
+                                    "description": "ID da requisição (sobrescreve IdRequisicao do corpo)"
+                                }
+                            ]
+                        },
+                        "description": "PASSO 2 DE 2 para anexar um arquivo: efetiva o anexo na requisição. Corpo: CodigoAcao (código da ação \"anexar documento\" do formulário, normalmente ANDOC) e Anexos[] com Id (GUID devolvido pelo upload, request \"Anexar Arquivo\"; a variável anexoId é preenchida automaticamente), NomeDuranteUpload (nome do arquivo COM extensão; valida extensão e define o nome final) e Titulo (título exibido). Sucesso: 200 com records null e _metadata.MensagensErro vazio. Falhas de validação (extensão não permitida, caractere inválido no nome, sem permissão de anexar neste status, requisição não encontrada) respondem 406 com texto; Id inexistente na pasta temporária responde 500.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"CodigoAcao\": \"ANDOC\",\n  \"Anexos\": [\n    {\n      \"Id\": \"{{anexoId}}\",\n      \"NomeDuranteUpload\": \"arquivo.pdf\",\n      \"Titulo\": \"arquivo.pdf\"\n    }\n  ]\n}"
+                        }
                     },
                     "response": []
                 },
@@ -908,14 +1042,38 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"RequisicaoId\": 12345,\n  \"Nota\": 5,\n  \"Comentario\": \"Excelente atendimento\"\n}"
+                            "raw": "{\n  \"IdRequisicao\": 222885,\n  \"Respostas\": [\n    {\n      \"IdPergunta\": 3,\n      \"IdOpcao\": 12\n    }\n  ]\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/responderpesquisasatisfacao",
                             "host": ["{{baseUrl}}"],
                             "path": ["v1", "requisicoes", "responderpesquisasatisfacao"]
                         },
-                        "description": "Submete a resposta de uma pesquisa de satisfação. Corpo: PesquisaRespondida."
+                        "description": "Responde a pesquisa de satisfação. Corpo: IdRequisicao e Respostas[] com IdPergunta, IdOpcao (opcional) e, quando aplicável, Motivo, RespostaDescritiva, RespostaComentario, UsuarioSeAbsteve. A resposta é uma string JSON crua do COM, sem envelope; falhas aparecem como texto \"erro: ...\" com HTTP 200."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Pesquisas Pendentes",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/requisicoes/pesquisas-pendentes",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "requisicoes", "pesquisas-pendentes"]
+                        },
+                        "description": "Lista as pesquisas de satisfação ainda não respondidas pelo usuário autenticado. records[]: PesquisaId, IdRequisicao, NumeroRequisicao, Assunto, Anonima, ResponderMaisDeUmaVez. Sem pendências: 200 com records []. Use IdRequisicao em GET /v1/requisicoes/{requisicao}/pesquisasatisfacao."
                     },
                     "response": []
                 },
@@ -1040,14 +1198,14 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"host\": \"server01\",\n  \"trigger\": \"High CPU usage\",\n  \"severity\": \"High\"\n}"
+                            "raw": "{\n  \"olt\": \"OLT-01\",\n  \"hostName\": \"olt01\",\n  \"problem_id\": \"123\",\n  \"HorarioQueda\": \"2026-10-08 10:00:00\",\n  \"PosicoesAfetadas\": [\n    {\n      \"Slot\": \"1\",\n      \"Pon\": \"2\"\n    }\n  ]\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoZabbix",
                             "host": ["{{baseUrl}}"],
                             "path": ["v1", "requisicoes", "abrirFormatoZabbix"]
                         },
-                        "description": "Abre requisição no formato Zabbix usando variante padrão (RompimentoFibra). Corpo JSON dinâmico. Oculto do Swagger."
+                        "description": "Abre requisição no formato Zabbix usando variante padrão (RompimentoFibra). Corpo JSON dinâmico. Oculto do Swagger. Exemplo mínimo; os campos exigidos dependem da variante (ParametroAvancado IntegracaoZabbix/<variante>)."
                     },
                     "response": []
                 },
@@ -1073,7 +1231,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"host\": \"server01\",\n  \"trigger\": \"High CPU usage\",\n  \"severity\": \"High\"\n}"
+                            "raw": "{\n  \"olt\": \"OLT-01\",\n  \"hostName\": \"olt01\",\n  \"problem_id\": \"123\",\n  \"HorarioQueda\": \"2026-10-08 10:00:00\",\n  \"PosicoesAfetadas\": [\n    {\n      \"Slot\": \"1\",\n      \"Pon\": \"2\"\n    }\n  ]\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoZabbix/:variante",
@@ -1087,7 +1245,7 @@
                                 }
                             ]
                         },
-                        "description": "Abre requisição no formato Zabbix com variante específica. Corpo JSON dinâmico. Oculto do Swagger."
+                        "description": "Abre requisição no formato Zabbix com variante específica. Corpo JSON dinâmico. Oculto do Swagger. Exemplo mínimo; os campos exigidos dependem da variante (ParametroAvancado IntegracaoZabbix/<variante>)."
                     },
                     "response": []
                 },
@@ -1113,7 +1271,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"status\": \"resolved\",\n  \"resolution\": \"Problema corrigido\"\n}"
+                            "raw": "{\n  \"olt\": \"OLT-01\",\n  \"qtd_afetado\": 12,\n  \"PosicoesAfetadas\": [\n    {\n      \"Slot\": \"1\",\n      \"Pon\": \"2\"\n    }\n  ],\n  \"novasONUs\": []\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/requisicoes/:requisicao/atualizarFormatoZabbix/:variante",
@@ -1133,343 +1291,6 @@
                             ]
                         },
                         "description": "Atualiza requisição existente no formato Zabbix. Corpo JSON dinâmico. Oculto do Swagger."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato Investigação Saturação",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoInvestigacaoSaturacao",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoInvestigacaoSaturacao"]
-                        },
-                        "description": "Abre requisição no formato de investigação de saturação. Corpo JSON dinâmico específico do sistema de origem. Oculto do Swagger."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato Incidentes IP",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoIncidentesIp",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoIncidentesIp"]
-                        },
-                        "description": "Abre requisição no formato de incidentes IP. Corpo JSON dinâmico. Oculto do Swagger."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato Análise Incidentes IP",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoAnaliseIncidentesIP",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoAnaliseIncidentesIP"]
-                        },
-                        "description": "Abre requisição no formato de análise de incidentes IP. Corpo JSON dinâmico. Oculto do Swagger."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato Retificadoras",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoRetificadoras",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoRetificadoras"]
-                        },
-                        "description": "Abre requisição no formato retificadoras. Corpo JSON dinâmico. Oculto do Swagger."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato Zabbix Discart",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoZabbixDiscart",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoZabbixDiscart"]
-                        },
-                        "description": "Abre requisição no formato Zabbix Discart. Corpo JSON dinâmico. Oculto do Swagger."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato SBCs",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoSBCs",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoSBCs"]
-                        },
-                        "description": "Abre requisição no formato SBCs. Corpo JSON dinâmico."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato Trechos",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoTrechos/:atividadeId",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoTrechos", ":atividadeId"],
-                            "variable": [
-                                {
-                                    "key": "atividadeId",
-                                    "value": "1",
-                                    "description": "ID da atividade"
-                                }
-                            ]
-                        },
-                        "description": "Abre requisição no formato trechos. Requer atividadeId no path. Corpo JSON dinâmico."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato Massiva",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoMassiva",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoMassiva"]
-                        },
-                        "description": "Abre requisição no formato massiva. Corpo JSON dinâmico."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato Interconexões",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoInterconexoes",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoInterconexoes"]
-                        },
-                        "description": "Abre requisição no formato interconexões. Corpo JSON dinâmico."
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Abrir Formato POP",
-                    "request": {
-                        "auth": {
-                            "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{bearerToken}}",
-                                    "type": "string"
-                                }
-                            ]
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{}"
-                        },
-                        "url": {
-                            "raw": "{{baseUrl}}/v1/requisicoes/abrirFormatoPOP",
-                            "host": ["{{baseUrl}}"],
-                            "path": ["v1", "requisicoes", "abrirFormatoPOP"]
-                        },
-                        "description": "Abre requisição no formato POP. Corpo JSON dinâmico. Oculto do Swagger."
                     },
                     "response": []
                 },
@@ -1597,7 +1418,7 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{baseUrl}}/v1/participantes/ObterParticipantesParaDependenciaSEARCH?idFrmPapel=1&idFrmPapelRelacionado=2&idTpPapel=1&idTpPapelRelacionado=2&jsonPai={}",
+                            "raw": "{{baseUrl}}/v1/participantes/ObterParticipantesParaDependenciaSEARCH?idFrmPapel=1&idFrmPapelRelacionado=2&idTpPapel=1&idTpPapelRelacionado=2&jsonPai=[[1,2]]",
                             "host": ["{{baseUrl}}"],
                             "path": ["v1", "participantes", "ObterParticipantesParaDependenciaSEARCH"],
                             "query": [
@@ -1623,8 +1444,8 @@
                                 },
                                 {
                                     "key": "jsonPai",
-                                    "value": "{}",
-                                    "description": "JSON serializado do campo pai"
+                                    "value": "[[1,2]]",
+                                    "description": "JSON int[][] URL-encoded: pares [idTipoPapel, idParticipantePai]; só o primeiro par é usado"
                                 }
                             ]
                         },
@@ -1648,7 +1469,7 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{baseUrl}}/v1/participantes/ObterParticipantesParaDependenciaCOMBO?idFormularioPapel=1&jsonPai={}&term=joao",
+                            "raw": "{{baseUrl}}/v1/participantes/ObterParticipantesParaDependenciaCOMBO?idFormularioPapel=1&jsonPai=[[1,2]]&term=joao",
                             "host": ["{{baseUrl}}"],
                             "path": ["v1", "participantes", "ObterParticipantesParaDependenciaCOMBO"],
                             "query": [
@@ -1659,8 +1480,8 @@
                                 },
                                 {
                                     "key": "jsonPai",
-                                    "value": "{}",
-                                    "description": "JSON serializado do campo pai"
+                                    "value": "[[1,2]]",
+                                    "description": "JSON int[][] URL-encoded: pares [idTipoPapel, idParticipantePai]; só o primeiro par é usado"
                                 },
                                 {
                                     "key": "term",
@@ -1877,6 +1698,89 @@
                             ]
                         },
                         "description": "Retorna detalhes de uma atividade específica com campos e conjuntos de dados para preenchimento."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Baixar Planilha Modelo",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/cardapio/:id/planilha/:chaveConjunto",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "cardapio", ":id", "planilha", ":chaveConjunto"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "10",
+                                    "description": "ID do item de cardápio"
+                                },
+                                {
+                                    "key": "chaveConjunto",
+                                    "value": "Itens",
+                                    "description": "Chave do conjunto de dados adicionais"
+                                }
+                            ]
+                        },
+                        "description": "Baixa a planilha-modelo (.xlsx) para preencher um conjunto de múltiplos itens. Resposta binária (sem envelope), Content-Disposition: planilha-modelo-conjunto<chaveConjunto>.xlsx."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enviar Planilha Preenchida",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [
+                                {
+                                    "key": "token",
+                                    "value": "{{bearerToken}}",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/cardapio/:id/planilha/:chaveConjunto",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "cardapio", ":id", "planilha", ":chaveConjunto"],
+                            "variable": [
+                                {
+                                    "key": "id",
+                                    "value": "10",
+                                    "description": "ID do item de cardápio"
+                                },
+                                {
+                                    "key": "chaveConjunto",
+                                    "value": "Itens",
+                                    "description": "Chave do conjunto de dados adicionais"
+                                }
+                            ]
+                        },
+                        "description": "Valida e lê a planilha preenchida e devolve as linhas para o cliente usar no conjunto; NÃO cria requisição. Resposta 200: {\"MensagensErro\":[...],\"Dados\":[[...]]}. Erros parciais (linhas inválidas) voltam em HTTP 200 dentro de MensagensErro: confira sempre. Sem arquivo: 406.",
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "file",
+                                    "type": "file",
+                                    "src": "",
+                                    "description": "Planilha preenchida (vale o primeiro arquivo enviado)"
+                                }
+                            ]
+                        }
                     },
                     "response": []
                 },
@@ -2324,7 +2228,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Adicionar\": [123, 456],\n  \"Remover\": [789]\n}"
+                            "raw": "{\n  \"Inserir\": [\n    \"Nome Completo do Usuário\"\n  ],\n  \"Remover\": [\n    \"Outro Nome\"\n  ]\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/ics/:ic/listaspapeis/:lista/membros",
@@ -2343,7 +2247,7 @@
                                 }
                             ]
                         },
-                        "description": "Adiciona ou remove membros de uma lista de papéis do IC. Corpo: AlteracoesMembros (JSON com membros a adicionar/remover)."
+                        "description": "Insere e/ou remove membros de uma lista de papéis do IC. Corpo: {\"Inserir\":[...],\"Remover\":[...]}. Os itens são NOMES DE EXIBIÇÃO dos usuários (nome completo cadastrado), não login nem id. Responde sempre 200, com o resultado por nome: confira o corpo da resposta para saber quais nomes foram aplicados."
                     },
                     "response": []
                 },
@@ -2419,18 +2323,14 @@
             "listen": "prerequest",
             "script": {
                 "type": "text/javascript",
-                "exec": [
-                    ""
-                ]
+                "exec": [""]
             }
         },
         {
             "listen": "test",
             "script": {
                 "type": "text/javascript",
-                "exec": [
-                    ""
-                ]
+                "exec": [""]
             }
         }
     ],
@@ -2443,6 +2343,11 @@
         {
             "key": "bearerToken",
             "value": "SEU_TOKEN_AQUI",
+            "type": "string"
+        },
+        {
+            "key": "anexoId",
+            "value": "",
             "type": "string"
         }
     ]

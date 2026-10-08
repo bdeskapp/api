@@ -2,7 +2,7 @@
 
 ## O que voce vai aprender
 
-Como criar requisicoes na API BDesk de diferentes formas: abertura simples (retorna apenas o ID), abertura com dados adicionais de formulario, abertura completa (retorna o objeto inteiro) e abertura via template para ferramentas de monitoramento.
+Como criar requisicoes na API BDesk de diferentes formas: abertura simples (retorna apenas o ID), abertura com dados adicionais de formulario, abertura com o ID dentro do envelope padrao da API e abertura via template para ferramentas de monitoramento.
 
 ---
 
@@ -19,64 +19,77 @@ Antes de comecar, voce precisa ter:
 
 ### Passo 1: Escolha o metodo de abertura adequado
 
-A API oferece quatro formas de abrir uma requisicao. Escolha de acordo com a sua necessidade:
+A API oferece tres endpoints de abertura (os Metodos 1 e 2 abaixo usam o mesmo). Escolha de acordo com a sua necessidade:
 
 | Endpoint | Quando usar |
 |---|---|
-| `POST /v1/requisicoes/abrir` | Integracao simples — voce so precisa do ID da requisicao criada |
-| `POST /v1/requisicoes/abrirRequisicao` | Quando voce precisa do objeto completo da requisicao apos a criacao |
-| `POST /v1/requisicoes/abrirFormatoZabbix` | Integracao com Zabbix e outras ferramentas de monitoramento |
+| `POST /v1/requisicoes/abrir` | Integracao simples — a resposta e apenas o numero da requisicao criada |
+| `POST /v1/requisicoes/abrirRequisicao` | Mesmo corpo de `abrir`, mas o numero vem dentro do envelope padrao da API (`records`) |
+| `POST /v1/requisicoes/abrirFormatoZabbix/{variante}` | Integracao com Zabbix e outras ferramentas de monitoramento (a `{variante}` e opcional) |
+
+Os dois primeiros endpoints recebem exatamente o mesmo corpo. O de monitoramento tem
+guia proprio (veja o Metodo 4 abaixo).
 
 ---
 
 ### Passo 2: Monte o payload basico
 
-Todo payload de abertura de requisicao requer ao menos tres campos:
+Todo payload de abertura de requisicao tem o formulario e um dicionario `Conjuntos`. Os dados
+principais (assunto e descricao) ficam dentro do conjunto `DadosBasicos`:
 
 | Campo | Tipo | Descricao |
 |---|---|---|
 | `Formulario` | inteiro | ID do formulario (tipo de servico) |
-| `Assunto` | texto | Titulo curto da requisicao |
-| `Descricao` | texto | Descricao detalhada do problema ou solicitacao |
+| `Conjuntos.DadosBasicos.Assunto` | texto | Titulo curto da requisicao |
+| `Conjuntos.DadosBasicos.Descricao` | texto | Descricao detalhada do problema ou solicitacao |
 
 **Exemplo de payload minimo:**
 
 ```json
 {
   "Formulario": 123,
-  "Assunto": "Titulo da requisicao",
-  "Descricao": "Descricao detalhada do problema"
+  "Conjuntos": {
+    "DadosBasicos": {
+      "Assunto": "Titulo da requisicao",
+      "Descricao": "Descricao detalhada do problema"
+    }
+  }
 }
 ```
+
+O `DadosBasicos` pode ter outros campos conforme o formulario (por exemplo, `Atividade`). Consulte
+os campos de cada formulario em `GET /v1/cardapio/{id}` (veja o [Catalogo de Servicos](catalogo-servicos.md)).
 
 ---
 
 ### Passo 3: Envie a requisicao
 
-Adicione o header de autenticacao `Authorization: Bearer SEU_TOKEN_AQUI` e faça o POST para o endpoint escolhido.
+Adicione o header de autenticacao `Authorization: Bearer SEU_TOKEN_AQUI` e faca o POST para o endpoint escolhido.
 
-A resposta de `/v1/requisicoes/abrir` e o ID da requisicao criada diretamente no corpo da resposta como texto, por exemplo:
+A resposta de `/v1/requisicoes/abrir` e o numero da requisicao criada, diretamente no corpo da resposta como um texto JSON, por exemplo:
 
 ```
-"RQ-20240317-001"
+"222886"
 ```
 
 ---
 
 ### Passo 4: (Opcional) Inclua dados adicionais do formulario
 
-Alguns formularios possuem campos extras alem do assunto e descricao. Esses campos ficam organizados em grupos chamados **Conjuntos**.
+Alguns formularios possuem campos extras alem do assunto e descricao. Esses campos ficam organizados em grupos chamados **Conjuntos**, ao lado de `DadosBasicos`.
 
-O campo `Conjuntos` e um **dicionario**: a chave e o nome do conjunto e o valor e outro objeto com os campos daquele conjunto.
+O campo `Conjuntos` e um **dicionario**: a chave e o nome do conjunto e o valor e outro objeto com os campos daquele conjunto (ou uma lista de objetos, quando o conjunto aceita varios itens).
 
 **Exemplo com dados adicionais:**
 
 ```json
 {
   "Formulario": 123,
-  "Assunto": "Titulo",
-  "Descricao": "Descricao",
   "Conjuntos": {
+    "DadosBasicos": {
+      "Assunto": "Titulo",
+      "Descricao": "Descricao"
+    },
     "NomeDoConjunto": {
       "Campo1": "valor1",
       "Campo2": "valor2"
@@ -87,19 +100,18 @@ O campo `Conjuntos` e um **dicionario**: a chave e o nome do conjunto e o valor 
 
 > Para descobrir os nomes dos conjuntos e campos disponiveis para cada formulario, veja [Catalogo de Servicos](catalogo-servicos.md).
 
+Um conjunto que nao seja um objeto nem uma lista faz a API responder com erro.
+
 ---
 
 ### Passo 5: (Opcional) Adicione anexos apos a abertura
 
-Apos criar a requisicao, voce pode anexar arquivos usando o endpoint:
+Apos criar a requisicao, voce pode anexar arquivos. O envio e feito em duas chamadas:
 
-```
-POST /v1/requisicoes/{id}/anexo
-```
+1. `POST /v1/requisicoes/{id}/anexo` (formato `multipart/form-data`) envia o arquivo e devolve um identificador temporario. Nesta etapa o arquivo **ainda nao** esta anexado.
+2. `POST /v1/requisicoes/{id}/anexos/submeter` (JSON) vincula o arquivo a requisicao.
 
-A requisicao deve ser enviada no formato `multipart/form-data`.
-
-> Veja [Gerenciar Anexos](anexos.md) para detalhes completos sobre upload de arquivos.
+> Veja [Gerenciar Anexos](anexos.md) para detalhes completos, exemplos e erros dos dois passos.
 
 ---
 
@@ -107,25 +119,29 @@ A requisicao deve ser enviada no formato `multipart/form-data`.
 
 **Endpoint:** `POST /v1/requisicoes/abrir`
 
-Use este metodo quando voce so precisa do ID da requisicao criada, sem informacoes adicionais. E o metodo mais direto para integracao com sistemas externos.
+Use este metodo quando voce so precisa do numero da requisicao criada, sem informacoes adicionais. E o metodo mais direto para integracao com sistemas externos.
 
 **Payload:**
 
 ```json
 {
   "Formulario": 123,
-  "Assunto": "Falha no servidor de email",
-  "Descricao": "O servidor SMTP parou de responder desde as 10h."
+  "Conjuntos": {
+    "DadosBasicos": {
+      "Assunto": "Falha no servidor de email",
+      "Descricao": "O servidor SMTP parou de responder desde as 10h."
+    }
+  }
 }
 ```
 
 **Resposta de sucesso (HTTP 200):**
 
 ```
-"RQ-20240317-001"
+"222886"
 ```
 
-A resposta e o identificador da requisicao aberta, retornado como texto simples no corpo da resposta.
+A resposta e o numero da requisicao aberta, retornado como um texto JSON simples no corpo da resposta (sem envelope).
 
 **Exemplo rapido com cURL:**
 
@@ -135,8 +151,12 @@ curl -X POST "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/abrir" \
   -H "Content-Type: application/json" \
   -d '{
     "Formulario": 123,
-    "Assunto": "Falha no servidor de email",
-    "Descricao": "O servidor SMTP parou de responder desde as 10h."
+    "Conjuntos": {
+      "DadosBasicos": {
+        "Assunto": "Falha no servidor de email",
+        "Descricao": "O servidor SMTP parou de responder desde as 10h."
+      }
+    }
   }'
 ```
 
@@ -150,16 +170,18 @@ Formularios podem ter campos extras alem do assunto e descricao. Use o campo `Co
 
 Conjuntos sao agrupamentos de campos adicionais definidos no formulario. Por exemplo, um formulario de "Acesso a Sistema" pode ter um conjunto chamado `"DadosDoAcesso"` com campos como `"Sistema"` e `"NivelDeAcesso"`.
 
-**Importante:** `Conjuntos` e um **dicionario** (objeto JSON), nao uma lista. A chave de cada entrada e o nome do conjunto (Chave), e o valor e outro objeto com os campos daquele conjunto.
+**Importante:** `Conjuntos` e um **dicionario** (objeto JSON), nao uma lista. A chave de cada entrada e o nome do conjunto (Chave), e o valor e outro objeto com os campos daquele conjunto (ou uma lista de objetos, para conjuntos com varios itens).
 
 **Payload:**
 
 ```json
 {
   "Formulario": 123,
-  "Assunto": "Solicitar acesso ao sistema de RH",
-  "Descricao": "Preciso de acesso para consultar folha de pagamento.",
   "Conjuntos": {
+    "DadosBasicos": {
+      "Assunto": "Solicitar acesso ao sistema de RH",
+      "Descricao": "Preciso de acesso para consultar folha de pagamento."
+    },
     "DadosDoAcesso": {
       "Sistema": "SistemaRH",
       "NivelDeAcesso": "Leitura"
@@ -174,13 +196,16 @@ Conjuntos sao agrupamentos de campos adicionais definidos no formulario. Por exe
 
 > Para descobrir os nomes dos conjuntos e campos de cada formulario, consulte [Catalogo de Servicos](catalogo-servicos.md).
 
+Participantes (como solicitante ou responsavel) entram no conjunto `Papeis`, com o `Id` obtido em
+[Participantes](participantes.md) para o papel correspondente.
+
 ---
 
-## Metodo 3: Abertura Completa (retorna objeto)
+## Metodo 3: Abertura com o numero no envelope
 
 **Endpoint:** `POST /v1/requisicoes/abrirRequisicao`
 
-Use este metodo quando alem de abrir a requisicao, voce precisa dos dados completos do objeto criado — como o ID numerico interno, datas, status e outros campos retornados pelo sistema.
+Use este metodo quando preferir receber o numero da requisicao dentro do envelope padrao da API, junto com `_metadata`. O corpo enviado e o mesmo dos Metodos 1 e 2.
 
 **Payload:** mesmo formato do Metodo 1 e Metodo 2.
 
@@ -188,29 +213,34 @@ Use este metodo quando alem de abrir a requisicao, voce precisa dos dados comple
 
 ```json
 {
-  "_metadata": { ... },
-  "resultado": {
-    "IdRequisicaoAberta": "RQ-20240317-001",
-    "Numero": 4872,
-    "Assunto": "Falha no servidor de email",
-    "Status": "Aberta",
-    "DataAbertura": "2024-03-17T10:00:00"
-  }
+  "_metadata": {
+    "Release": "9.8.0",
+    "LogAmigavel": [],
+    "MensagensErro": []
+  },
+  "records": [
+    { "IdRequisicaoAberta": "222886" }
+  ]
 }
 ```
 
+O numero da requisicao esta em `records[0].IdRequisicaoAberta` (como texto). Se a abertura nao
+devolver o numero, `records` vem vazio. A resposta **nao** traz assunto, status nem data de
+abertura: para obter os dados completos da requisicao criada, consulte
+`GET /v1/requisicoes/{id}` (veja [Consultar Requisicoes](consultar-requisicoes.md)).
+
 **Quando usar cada endpoint:**
 
-- Use `/v1/requisicoes/abrir` quando sua integracao so precisa saber qual foi o ID criado.
-- Use `/v1/requisicoes/abrirRequisicao` quando voce precisa processar dados do objeto retornado (ex: gravar no seu sistema o numero da requisicao e a data de abertura).
+- Use `/v1/requisicoes/abrir` quando sua integracao so precisa do numero, direto no corpo.
+- Use `/v1/requisicoes/abrirRequisicao` quando seu cliente HTTP espera sempre o envelope com `_metadata` e `records`.
 
 ---
 
 ## Metodo 4: Abertura via Template (Zabbix/Monitoramento)
 
-**Endpoint:** `POST /v1/requisicoes/abrirFormatoZabbix`
+**Endpoint:** `POST /v1/requisicoes/abrirFormatoZabbix/{variante}`
 
-Este endpoint aceita o formato de alerta do Zabbix e de outras ferramentas de monitoramento de infraestrutura, permitindo abrir requisicoes automaticamente a partir de alertas gerados por essas ferramentas.
+Este endpoint aceita o formato de alerta do Zabbix e de outras ferramentas de monitoramento de infraestrutura, permitindo abrir requisicoes automaticamente a partir de alertas gerados por essas ferramentas. A `{variante}` identifica a configuracao do tipo de incidente e e opcional.
 
 > Para detalhes sobre integracao com Zabbix e outras ferramentas de monitoramento, veja [Integracoes de Monitoramento](integracoes-monitoramento.md).
 
@@ -227,8 +257,12 @@ curl -X POST "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/abrir" \
   -H "Content-Type: application/json" \
   -d '{
     "Formulario": 123,
-    "Assunto": "Falha no servidor de email",
-    "Descricao": "O servidor SMTP parou de responder desde as 10h."
+    "Conjuntos": {
+      "DadosBasicos": {
+        "Assunto": "Falha no servidor de email",
+        "Descricao": "O servidor SMTP parou de responder desde as 10h."
+      }
+    }
   }'
 
 # Abertura com dados adicionais
@@ -237,9 +271,11 @@ curl -X POST "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/abrir" \
   -H "Content-Type: application/json" \
   -d '{
     "Formulario": 123,
-    "Assunto": "Solicitar acesso ao sistema de RH",
-    "Descricao": "Preciso de acesso para consultar folha de pagamento.",
     "Conjuntos": {
+      "DadosBasicos": {
+        "Assunto": "Solicitar acesso ao sistema de RH",
+        "Descricao": "Preciso de acesso para consultar folha de pagamento."
+      },
       "DadosDoAcesso": {
         "Sistema": "SistemaRH",
         "NivelDeAcesso": "Leitura"
@@ -264,20 +300,28 @@ headers = {
 # Abertura simples
 payload = {
     "Formulario": 123,
-    "Assunto": "Falha no servidor de email",
-    "Descricao": "O servidor SMTP parou de responder desde as 10h."
+    "Conjuntos": {
+        "DadosBasicos": {
+            "Assunto": "Falha no servidor de email",
+            "Descricao": "O servidor SMTP parou de responder desde as 10h."
+        }
+    }
 }
 
 resp = requests.post(f"{BASE_URL}/v1/requisicoes/abrir", json=payload, headers=headers)
-resp.raise_for_status()
-print(f"Requisicao criada: {resp.text}")
+if resp.status_code != 200:
+    # 406: a mensagem vem em texto puro
+    raise SystemExit(f"Falha na abertura ({resp.status_code}): {resp.text}")
+print(f"Requisicao criada: {resp.json()}")  # texto JSON, ex.: "222886"
 
 # Abertura com dados adicionais
 payload_completo = {
     "Formulario": 123,
-    "Assunto": "Solicitar acesso ao sistema de RH",
-    "Descricao": "Preciso de acesso para consultar folha de pagamento.",
     "Conjuntos": {
+        "DadosBasicos": {
+            "Assunto": "Solicitar acesso ao sistema de RH",
+            "Descricao": "Preciso de acesso para consultar folha de pagamento."
+        },
         "DadosDoAcesso": {
             "Sistema": "SistemaRH",
             "NivelDeAcesso": "Leitura"
@@ -286,14 +330,16 @@ payload_completo = {
 }
 
 resp = requests.post(f"{BASE_URL}/v1/requisicoes/abrir", json=payload_completo, headers=headers)
-resp.raise_for_status()
-print(f"Requisicao criada: {resp.text}")
+if resp.status_code != 200:
+    raise SystemExit(f"Falha na abertura ({resp.status_code}): {resp.text}")
+print(f"Requisicao criada: {resp.json()}")
 
-# Abertura completa (retorna objeto)
+# Abertura com o numero no envelope
 resp = requests.post(f"{BASE_URL}/v1/requisicoes/abrirRequisicao", json=payload, headers=headers)
-resp.raise_for_status()
+if resp.status_code != 200:
+    raise SystemExit(f"Falha na abertura ({resp.status_code}): {resp.text}")
 dados = resp.json()
-id_requisicao = dados["resultado"]["IdRequisicaoAberta"]
+id_requisicao = dados["records"][0]["IdRequisicaoAberta"]
 print(f"ID da requisicao: {id_requisicao}")
 ```
 
@@ -311,9 +357,13 @@ $headers = @{
 # Abertura simples
 $payload = @{
     Formulario = 123
-    Assunto    = "Falha no servidor de email"
-    Descricao  = "O servidor SMTP parou de responder desde as 10h."
-} | ConvertTo-Json
+    Conjuntos  = @{
+        DadosBasicos = @{
+            Assunto   = "Falha no servidor de email"
+            Descricao = "O servidor SMTP parou de responder desde as 10h."
+        }
+    }
+} | ConvertTo-Json -Depth 5
 
 $resp = Invoke-RestMethod `
     -Uri "$BaseUrl/v1/requisicoes/abrir" `
@@ -327,9 +377,11 @@ Write-Host "Requisicao criada: $resp"
 # Abertura com dados adicionais
 $payloadCompleto = @{
     Formulario = 123
-    Assunto    = "Solicitar acesso ao sistema de RH"
-    Descricao  = "Preciso de acesso para consultar folha de pagamento."
     Conjuntos  = @{
+        DadosBasicos = @{
+            Assunto   = "Solicitar acesso ao sistema de RH"
+            Descricao = "Preciso de acesso para consultar folha de pagamento."
+        }
         DadosDoAcesso = @{
             Sistema       = "SistemaRH"
             NivelDeAcesso = "Leitura"
@@ -346,7 +398,7 @@ $resp = Invoke-RestMethod `
 
 Write-Host "Requisicao criada: $resp"
 
-# Abertura completa (retorna objeto)
+# Abertura com o numero no envelope
 $resp = Invoke-RestMethod `
     -Uri "$BaseUrl/v1/requisicoes/abrirRequisicao" `
     -Method Post `
@@ -354,20 +406,28 @@ $resp = Invoke-RestMethod `
     -Body $payload `
     -ContentType "application/json"
 
-Write-Host "ID da requisicao: $($resp.resultado.IdRequisicaoAberta)"
+Write-Host "ID da requisicao: $($resp.records[0].IdRequisicaoAberta)"
 ```
 
 ---
 
 ## Erros Comuns
 
+Os erros de abertura voltam como HTTP 406 com a mensagem em **texto puro** (nao em JSON).
+
 | Sintoma | Causa provavel | Solucao |
 |---|---|---|
-| HTTP 406 — "Formulario nao encontrado" | O ID informado no campo `Formulario` nao existe ou esta inativo | Verifique o ID correto via [Catalogo de Servicos](catalogo-servicos.md) |
-| HTTP 406 — "Campo obrigatorio nao preenchido" | Um campo marcado como obrigatorio no formulario nao foi enviado no payload | Consulte os campos obrigatorios do formulario no [Catalogo de Servicos](catalogo-servicos.md) |
-| HTTP 406 — "Atividade nao informada" | O formulario exige que uma atividade seja selecionada | Adicione o campo `Atividade` com o valor correspondente ao payload |
-| HTTP 401 — Unauthorized | Token expirado ou invalido | Faca login novamente e obtenha um novo token — veja [Autenticacao](../autenticacao.md) |
-| HTTP 400 — Bad Request | Payload mal formado (JSON invalido) | Valide o JSON antes de enviar; ferramentas como `jq` ou o Postman ajudam a identificar erros de formatacao |
+| HTTP 406 — formulario inexistente | O ID informado no campo `Formulario` nao existe | Verifique o ID correto via [Catalogo de Servicos](catalogo-servicos.md) |
+| HTTP 406 — "O campo 'Conjunto.Campo' recebeu a seguinte mensagem de validação: ..." | Um campo do formulario nao passou na validacao (por exemplo, obrigatorio nao preenchido) | Corrija o campo indicado na mensagem; consulte os campos do formulario no [Catalogo de Servicos](catalogo-servicos.md) |
+| HTTP 406 — "Os dados para abertura não foram completamente informados..." | O corpo esta vazio ou e `null` | Envie o JSON completo, com `Formulario` e `Conjuntos` |
+| HTTP 406 — "Erro no JSON ..." | O corpo nao e um JSON valido | Valide o JSON antes de enviar; ferramentas como o Postman ajudam a identificar erros de formatacao |
+| HTTP 406 — "Conjunto '...' não é objeto JSON ou array" | Um conjunto foi enviado como texto ou numero | Envie cada conjunto como objeto (ou lista de objetos) |
+| HTTP 401 — Unauthorized | Token ausente, invalido ou usuario desativado | Faca login novamente e obtenha um novo token — veja [Autenticacao](../autenticacao.md) |
+
+> **Atencao:** em alguns casos o erro 406 e devolvido **depois** de a requisicao ter sido criada
+> (uma validacao posterior acumulou mensagens). Antes de repetir a chamada depois de um 406, confira
+> em [Consultar Requisicoes](consultar-requisicoes.md) se a requisicao ja foi aberta, para nao criar
+> duplicadas.
 
 ---
 

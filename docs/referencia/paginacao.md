@@ -1,85 +1,64 @@
-# Paginacao
+# Paginacao e Limites de Listagem
 
-A API BDesk retorna resultados paginados para listagens que podem conter muitos registros. Isso garante respostas rapidas e evita sobrecarga na rede.
+A API BDesk **nao pagina** os resultados. Nao existem parametros para escolher pagina ou tamanho de pagina, e as respostas nao trazem informacoes de pagina (total de paginas, pagina atual). Cada listagem devolve **uma unica resposta**, limitada por um teto de registros proprio de cada endpoint.
 
----
-
-## Como Funciona
-
-Ao consultar endpoints de listagem (como requisicoes abertas ou catalogo de servicos), a API retorna uma pagina de resultados por vez. Voce controla quantos itens recebe por pagina e qual pagina deseja acessar usando parametros de query string.
+Para controlar o volume de dados, use os limites e filtros descritos abaixo.
 
 ---
 
-## Parametros
+## Limites por endpoint
 
-| Parametro    | Tipo    | Padrao | Maximo | Descricao                          |
-|--------------|---------|--------|--------|------------------------------------|
-| `pageSize`   | inteiro | 20     | 100    | Quantidade de itens por pagina     |
-| `pageNumber` | inteiro | 1      | —      | Numero da pagina desejada (inicia em 1) |
+| Endpoint | Como limitar | Padrao |
+|----------|--------------|--------|
+| `GET` e `POST /v1/requisicoes/abertas` | Parametro `LimiteRequisicoes` (query no GET; campo do corpo JSON no POST) | 500 |
+| `GET` e `POST /v1/requisicoes/encerradas` | Parametro `LimiteRequisicoes` (igual ao acima) | 500 |
+| `POST /v1/requisicoes/busca` | Parametro de query `maximoPorSituacao`: maximo de requisicoes **por situacao** (aberta e encerrada) | 100 |
+| `POST /v1/requisicoes/porcondicao/{condicao}/{quantidade}` | Segmento de rota `{quantidade}`: maximo de linhas | Sem padrao (obrigatorio na rota) |
+| `GET /v1/ics` | Sem limite: devolve **todos** os itens de configuracao | Todos |
 
-**Exemplo de URL:**
+Outras listagens (catalogo de servicos, acoes de uma requisicao, anexos, historico, participantes) tambem devolvem o resultado completo em uma unica resposta. Na pesquisa de participantes, a resposta traz no maximo 100 itens.
 
-```
-GET https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/abertas?pageSize=50&pageNumber=2
-```
-
----
-
-## Formato da Resposta
-
-Toda resposta paginada inclui um objeto `_metadata.Pagination` com informacoes sobre a paginacao atual:
-
-```json
-{
-  "_metadata": {
-    "Pagination": {
-      "TotalRecords": 150,
-      "TotalPages": 8,
-      "CurrentPage": 1,
-      "PageSize": 20
-    }
-  },
-  "records": [...]
-}
-```
-
-| Campo          | Descricao                                  |
-|----------------|--------------------------------------------|
-| `TotalRecords` | Total de registros encontrados             |
-| `TotalPages`   | Total de paginas disponíveis               |
-| `CurrentPage`  | Pagina atual retornada                     |
-| `PageSize`     | Quantidade de itens retornados nesta pagina |
+> **Atencao:** quando a lista tem mais registros que o limite, a API devolve apenas os primeiros, **sem aviso** na resposta. Se o seu volume pode ultrapassar o limite, divida a consulta com filtros (veja abaixo) em vez de supor que recebeu tudo.
 
 ---
 
-## Exemplo: Navegar Todas as Paginas
+## Como reduzir o volume com filtros
+
+As listagens `abertas` e `encerradas` aceitam filtros, que sao combinados entre si (todos precisam ser atendidos). No `GET` eles vao na query string; no `POST` vao no corpo JSON.
+
+| Filtro | Tipo | O que faz |
+|--------|------|-----------|
+| `RequisicaoId` | inteiro | Uma requisicao especifica |
+| `Assunto` | texto | Assunto exatamente igual ao informado |
+| `NomeFormulario` / `NomeAtividade` | texto | Nome do formulario ou da atividade contendo o texto |
+| `IdsFormularios` / `AtividadesIds` | lista de inteiros | Formularios ou atividades especificos |
+| `DescricoesStatus` | lista de textos | Descricao do status (ex.: `Aberta`) |
+| `GruposSolucionadores` | lista de inteiros | Grupo atualmente responsavel |
+| `AbertoEntre.Inicio` / `AbertoEntre.Fim` | data e hora | Intervalo da data de abertura |
+| `EncerradoEntre.Inicio` / `EncerradoEntre.Fim` | data e hora | Intervalo da data de encerramento |
+| `LimiteRequisicoes` | inteiro | Maximo de requisicoes devolvidas |
+
+Uma estrategia segura para extrair um volume grande e dividir por **periodo de abertura**: consulte um intervalo curto por vez (por exemplo, um mes) e some os resultados no cliente.
+
+---
+
+## Exemplos
 
 ### cURL
 
 ```bash
 BASE_URL="https://sua-empresa.bdesk.com.br/askrest"
 TOKEN="SEU_TOKEN_AQUI"
-PAGE=1
 
-while true; do
-  RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" \
-    "$BASE_URL/v1/requisicoes/abertas?pageSize=100&pageNumber=$PAGE")
+# Requisicoes abertas, com limite explicito de 50 registros
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "$BASE_URL/v1/requisicoes/abertas?LimiteRequisicoes=50"
 
-  echo "$RESPONSE" | node -e "
-    const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-    d.records.forEach(r => console.log('#' + r.RequisicaoId + ' - ' + r.Assunto));
-  "
-
-  TOTAL_PAGES=$(echo "$RESPONSE" | node -e "
-    const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-    process.stdout.write(String(d._metadata.Pagination.TotalPages));
-  ")
-
-  if [ "$PAGE" -ge "$TOTAL_PAGES" ]; then
-    break
-  fi
-  PAGE=$((PAGE + 1))
-done
+# Mesmo filtro por POST, com intervalo de abertura
+curl -s -X POST "$BASE_URL/v1/requisicoes/abertas" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"LimiteRequisicoes":50,"AbertoEntre":{"Inicio":"2026-01-01T00:00:00","Fim":"2026-01-31T23:59:59"}}'
 ```
 
 ### Python
@@ -90,50 +69,57 @@ import requests
 BASE_URL = "https://sua-empresa.bdesk.com.br/askrest"
 headers = {"Authorization": "Bearer SEU_TOKEN_AQUI"}
 
-page = 1
-while True:
-    resp = requests.get(
+# Um mes por vez, para nao esbarrar no limite de registros
+meses = [
+    ("2026-01-01T00:00:00", "2026-01-31T23:59:59"),
+    ("2026-02-01T00:00:00", "2026-02-28T23:59:59"),
+]
+
+todas = []
+for inicio, fim in meses:
+    resp = requests.post(
         f"{BASE_URL}/v1/requisicoes/abertas",
-        params={"pageSize": 100, "pageNumber": page},
-        headers=headers
+        json={"LimiteRequisicoes": 500, "AbertoEntre": {"Inicio": inicio, "Fim": fim}},
+        headers=headers,
     )
-    dados = resp.json()
+    resp.raise_for_status()
+    registros = resp.json()["records"]
+    if len(registros) >= 500:
+        print(f"Atencao: {inicio[:7]} atingiu o limite; divida o periodo em intervalos menores.")
+    todas.extend(registros)
 
-    for req in dados["records"]:
-        print(f"#{req['RequisicaoId']} - {req['Assunto']}")
-
-    if page >= dados["_metadata"]["Pagination"]["TotalPages"]:
-        break
-    page += 1
+for req in todas:
+    print(f"#{req['RequisicaoId']} - {req['Assunto']}")
 ```
 
 ### PowerShell
 
 ```powershell
 $BaseUrl = "https://sua-empresa.bdesk.com.br/askrest"
-$Token   = "SEU_TOKEN_AQUI"
-$Headers = @{ Authorization = "Bearer $Token" }
-$Page    = 1
+$Headers = @{ Authorization = "Bearer SEU_TOKEN_AQUI" }
 
-do {
-    $Response = Invoke-RestMethod `
-        -Uri "$BaseUrl/v1/requisicoes/abertas?pageSize=100&pageNumber=$Page" `
-        -Headers $Headers
+$corpo = @{
+    LimiteRequisicoes = 500
+    AbertoEntre = @{ Inicio = "2026-01-01T00:00:00"; Fim = "2026-01-31T23:59:59" }
+} | ConvertTo-Json
 
-    foreach ($req in $Response.records) {
-        Write-Host "#$($req.RequisicaoId) - $($req.Assunto)"
-    }
+$resp = Invoke-RestMethod -Uri "$BaseUrl/v1/requisicoes/abertas" -Method Post `
+    -Headers $Headers -ContentType "application/json" -Body $corpo
 
-    $TotalPages = $Response._metadata.Pagination.TotalPages
-    $Page++
-} while ($Page -le $TotalPages)
+if ($resp.records.Count -ge 500) {
+    Write-Warning "O limite foi atingido; divida o periodo em intervalos menores."
+}
+foreach ($req in $resp.records) {
+    Write-Host "#$($req.RequisicaoId) - $($req.Assunto)"
+}
 ```
 
 ---
 
 ## Dicas
 
-- **Use `pageSize=100`** para reduzir o numero de chamadas necessarias para percorrer todos os registros.
-- **Sempre verifique `TotalPages`** antes de iterar: se `TotalPages` for 1, nao ha proxima pagina.
-- **Pagina inexistente**: se `pageNumber` for maior que `TotalPages`, a API retorna `records` vazio — trate esse caso no seu codigo.
-- **Combinacao com filtros**: os parametros de paginacao funcionam junto com outros filtros de query string suportados pelo endpoint.
+- **Defina o limite explicitamente** em `LimiteRequisicoes` para que o comportamento nao dependa do padrao do servidor.
+- **Lista vazia nao e erro**: quando nenhum registro atende ao filtro, a resposta e 200 com `records` vazio.
+- **Nao procure por `_metadata` de paginacao**: o objeto `_metadata` traz apenas `MensagensErro` e `LogAmigavel`.
+- **Itens de configuracao**: `GET /v1/ics` devolve todos os itens de uma vez. Para ler um IC especifico, use `GET /v1/ics/{id}` (veja [Gestao de ICs](../guias/gestao-ics.md)).
+- **Consulta com filtros avancados**: para pesquisar por dados adicionais, participantes ou ultima acao, use `POST /v1/requisicoes/busca` (veja [Consultar Requisicoes](../guias/consultar-requisicoes.md)).

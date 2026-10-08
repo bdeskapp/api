@@ -47,14 +47,16 @@ A resposta sera semelhante a esta:
 
 ```json
 {
-  "Dados": "{\"token_type\":\"Bearer\",\"access_token\":\"eyJhbGciOi...\",\"expires_in\":3600}",
+  "Dados": "{\"access_token\":\"eyJhbGciOi...\",\"token_type\":\"bearer\",\"expires_in\":\"1799999999\",\"refresh_token\":null,\"scope\":\"admin\",\"error\":null}",
   "LogAmigavel": [],
   "MensagensErro": [],
-  "Versao": "9.8.0"
+  "Versao": null
 }
 ```
 
 > **Atencao:** O campo `Dados` contem uma string JSON, nao um objeto direto. Voce precisa fazer um parse adicional para extrair o token. Nao e possivel acessar `Dados.access_token` diretamente — primeiro converta o valor de `Dados` de string para objeto JSON.
+
+> **O login responde 200 mesmo quando falha.** Se usuario ou senha estiverem incorretos, a resposta continua sendo HTTP 200, mas com `"Dados": null` e a mensagem em `MensagensErro`. Confira esses dois campos antes de usar o token.
 
 Para extrair o token automaticamente no terminal, use o comando abaixo (requer Python 3):
 
@@ -63,18 +65,18 @@ Para extrair o token automaticamente no terminal, use o comando abaixo (requer P
 TOKEN=$(curl -s -X POST "https://sua-empresa.bdesk.com.br/askrest/v1/login/entrar" \
   -H "Content-Type: application/json" \
   -d '{"Login": "seu-usuario", "Senha": "sua-senha"}' \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); t=json.loads(d['Dados']); print(t['access_token'])")
+  | python3 -c "import sys,json; d=json.load(sys.stdin); t=json.loads(d['Dados']) if d.get('Dados') else sys.exit('Falha no login: %s' % d.get('MensagensErro')); print(t['access_token'])")
 ```
 
 Agora a variavel `$TOKEN` contem o token Bearer. Use-a nas proximas chamadas.
 
-O token expira em 3600 segundos (1 hora). Quando expirar, repita este passo para obter um novo token.
+O servidor nao expira o token por tempo: ele vale enquanto o usuario estiver ativo (o campo `expires_in` e apenas informativo). Se uma chamada responder HTTP 401, o token e invalido ou o usuario foi desativado: repita este passo para obter um novo token.
 
 ---
 
 ### Passo 2: Fazer Sua Primeira Chamada
 
-Com o token em maos, faca uma chamada ao painel resumido de requisicoes:
+Com o token em maos, faca uma chamada ao painel resumido de requisicoes (os totais sao do ambiente inteiro, nao apenas do seu usuario):
 
 ```bash
 curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes" \
@@ -98,10 +100,10 @@ Os campos `UrlRequisicoesAbertas` e `UrlRequisicoesEncerradas` indicam os endpoi
 
 ### Passo 3: Listar Requisicoes Abertas
 
-Para ver a lista de requisicoes abertas, use o endpoint `/v1/requisicoes/abertas`. Utilize os parametros `pageSize` e `pageNumber` para controlar a paginacao:
+Para ver a lista de requisicoes abertas, use o endpoint `/v1/requisicoes/abertas`. A API nao pagina os resultados; use o parametro `LimiteRequisicoes` (padrao 500) para limitar a quantidade devolvida:
 
 ```bash
-curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/abertas?pageSize=5&pageNumber=1" \
+curl -s "https://sua-empresa.bdesk.com.br/askrest/v1/requisicoes/abertas?LimiteRequisicoes=5" \
   -H "Authorization: Bearer SEU_TOKEN_AQUI"
 ```
 
@@ -110,15 +112,8 @@ Exemplo de resposta:
 ```json
 {
   "_metadata": {
-    "Release": "9.8.0",
     "MensagensErro": [],
-    "LogAmigavel": [],
-    "Pagination": {
-      "TotalRecords": 42,
-      "TotalPages": 9,
-      "CurrentPage": 1,
-      "PageSize": 5
-    }
+    "LogAmigavel": []
   },
   "records": [
     {
@@ -130,7 +125,9 @@ Exemplo de resposta:
 }
 ```
 
-O objeto `_metadata.Pagination` informa o total de registros, o numero de paginas e a pagina atual. Incremente `pageNumber` para navegar pelas paginas seguintes.
+Para reduzir o volume, combine `LimiteRequisicoes` com outros filtros (assunto, status, periodo de abertura). Veja [Paginacao e Limites](referencia/paginacao.md).
+
+> **Erros:** falhas de negocio podem voltar como HTTP 406 com a mensagem em texto puro, ou como HTTP 200 com a mensagem em `MensagensErro`. Veja [Tratamento de Erros](referencia/erros.md).
 
 ---
 
@@ -150,7 +147,8 @@ Todas as requisicoes da colecao ja estao configuradas para usar essas variaveis.
 
 ## Proximos Passos
 
-- [Autenticacao](autenticacao.md) — Detalhes sobre tokens, expiracao e renovacao
+- [Autenticacao](autenticacao.md) — Detalhes sobre tokens, validade e re-login
+- [Tratamento de Erros](referencia/erros.md) — Os dois padroes de erro da API
 - [Criar Requisicoes](guias/criar-requisicoes.md) — Como criar requisicoes via API
 - [Consultar Requisicoes](guias/consultar-requisicoes.md) — Como listar e filtrar requisicoes
 - [Exemplos Python](exemplos/python.md) e [Exemplos PowerShell](exemplos/powershell.md) — Scripts completos prontos para usar
