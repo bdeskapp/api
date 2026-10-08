@@ -164,7 +164,7 @@ paths:
                   value:
                     Dados: null
                     LogAmigavel: []
-                    MensagensErro: ["Login ou senha incorretos"]
+                    MensagensErro: ["Usuário ou senha incorretos"]
                     Versao: null
 
   /v1/login/EntrarApp:
@@ -854,9 +854,9 @@ paths:
       tags: [Requisições]
       summary: Anexar arquivos já enviados (passo 2 de 2)
       description: |
-        **Passo 2 de 2.** Só aqui o documento é criado na requisição. Para cada item de `Anexos`
-        o servidor valida a requisição e a permissão da ação (`CodigoAcao`, normalmente `ANDOC`) no
-        status atual, grava o documento (público, versão 1) e move o arquivo da pasta temporária para
+        **Passo 2 de 2.** Só aqui o documento é criado na requisição. O servidor valida uma única vez por submissão a requisição e a permissão da ação (`CodigoAcao`,
+        normalmente `ANDOC`) no status atual; para cada item de `Anexos` checa apenas o nome e a
+        extensão, grava o documento (público, versão 1) e move o arquivo da pasta temporária para
         a pasta de anexos com o nome `{idReq com 8 dígitos}_001_{NomeDuranteUpload}`.
 
         Fluxo: (1) `POST /v1/requisicoes/{requisicao}/anexo` para cada arquivo, guardando o `Id`
@@ -939,7 +939,7 @@ paths:
       summary: Executar ação
       description: |
         Executa uma ação de workflow na requisição.
-        Ver [Guia de Ações de Workflow](guides/workflow-actions.md) para códigos e parâmetros.
+        Ver [Guia de Ações de Workflow](https://bdeskapp.github.io/api/guias/acoes-workflow/) para códigos e parâmetros.
 
         O campo `Id` **precisa conter o código da ação entre colchetes**: `"[ENC]"` ou
         `"Encerrar [ENC]"` (ação de usuário: `[USU<n>]`). `"ENC"` sozinho resulta em
@@ -2559,10 +2559,6 @@ paths:
         '401':
           $ref: '#/components/responses/NaoAutorizado'
 
-  # --------------------------------------------------------------------------
-  # Notificações e Push — NotificacoesApiController, PushApiController (internos)
-  # --------------------------------------------------------------------------
-
 # ============================================================================
 # COMPONENTS
 # ============================================================================
@@ -3658,7 +3654,7 @@ components:
         tipoAvaliacao:
           type: integer
           nullable: true
-          description: Avaliação para ENC/AVAL (1 acima, 2 conforme, 3 abaixo do esperado)
+          description: "Avaliação para ENC/AVAL (1 acima, 2 conforme, 3 abaixo do esperado). Informe sempre em ENC e AVAL; se ausente, a API responde HTTP 500 (erro do servidor)"
         usuResponsavelId:
           type: integer
           format: int64

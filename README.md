@@ -8,7 +8,7 @@ Documentacao da API REST do [BDesk](https://herocorp.bdesk.com.br), uma platafor
 - **Guias** — Criar/consultar requisicoes, workflow, anexos, catalogo de servicos, ICs, monitoramento, participantes
 - **Referencia** — Erros, paginacao, limites, glossario
 - **Exemplos de Codigo** — cURL, Python, PowerShell
-- **Referencia de Endpoints** — 73 operacoes documentadas via [Redoc](https://redocly.com/redoc)
+- **Referencia de Endpoints** — 68 operacoes documentadas via [Redoc](https://redocly.com/redoc)
 - **OpenAPI 3.1** — Especificacao completa em `docs/openapi.yaml`
 - **Colecao Postman** — Pronta para importar em `docs/postman_collection.json`
 

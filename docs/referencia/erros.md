@@ -114,7 +114,7 @@ if ($mensagens) { throw ($mensagens -join "; ") }
 | 200 | Requisição processada | Confira `MensagensErro` (padrão b): o 200 não garante sucesso de negócio |
 | 401 | Não autenticado | Token ausente, inválido, ou usuário desativado. Faça login novamente (ver [Autenticação](../autenticacao.md)) |
 | 403 | Sem permissão | Ocorre em poucos endpoints, como `GET /v1/cardapio/formularios/{formulario}` (formulário inexistente ou sem acesso). O corpo é texto puro |
-| 404 | Não encontrado | Rota inexistente, ou parâmetro de query obrigatório não informado (a rota não é encontrada sem ele) |
+| 404 | Não encontrado | Rota inexistente; parâmetro de query obrigatório não informado tende a responder 404 (a seleção de ação do Web API descarta a rota) |
 | 406 | Erro de negócio | O corpo é texto puro com a mensagem (padrão a) |
 | 500 | Erro interno do servidor | Ocorre, por exemplo, quando um endpoint exige corpo e ele não foi enviado, ou quando o `Id` de um arquivo enviado não existe. Revise o que foi enviado; se persistir, contate o suporte BDesk |
 
@@ -159,7 +159,7 @@ else:
 |----------|----------|----------------|---------|
 | Login incorreto | 200, `Dados: null` | Usuário ou senha incorretos | Leia `MensagensErro` na raiz |
 | Token ausente ou inválido | 401 | Header `Authorization` incorreto, token desconhecido ou usuário desativado | Refaça o login e obtenha um novo token |
-| Parâmetro de query obrigatório ausente | 404 | A rota só é encontrada com o parâmetro (ex.: `termo` em `ObterParticipantes2`) | Informe todos os parâmetros obrigatórios |
+| Parâmetro de query obrigatório ausente | 404 (tende a) | A seleção de ação do Web API descarta a rota sem o parâmetro (ex.: `termo` em `ObterParticipantes2`) | Informe todos os parâmetros obrigatórios |
 | Campo obrigatório ausente na abertura | 406 | Formulário exige campos não enviados | Leia o texto do corpo para saber quais campos faltam |
 | Requisição não encontrada em `GET /v1/requisicoes/{id}` | 200, `Conjuntos: null` | ID inexistente ou sem acesso | Leia `MensagensErro` e confirme o ID |
 | Requisição não encontrada nas demais rotas | 406 | ID inexistente ou sem acesso | Confirme o ID e se o usuário tem acesso |

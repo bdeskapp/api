@@ -648,7 +648,7 @@
                                 }
                             ]
                         },
-                        "description": "Executa uma ação de workflow na requisição (VMExecutarAcaoApi). O campo Id deve trazer o código da ação ENTRE COLCHETES, como \"[ENC]\" ou \"Encerrar [ENC]\" (outros códigos: [DIR], [ATR], [RECAT]). Sem colchetes (\"ENC\") a resposta é 200 com a mensagem \"Ação não encontrada\". Atenção: falhas de negócio também voltam com HTTP 200; confira _metadata.MensagensErro. Campos adicionais dependem da ação. Para [ENC], tipoAvaliacao é obrigatório; sem ele a resposta é 200 com MensagensErro."
+                        "description": "Executa uma ação de workflow na requisição (VMExecutarAcaoApi). O campo Id deve trazer o código da ação ENTRE COLCHETES, como \"[ENC]\" ou \"Encerrar [ENC]\" (outros códigos: [DIR], [ATR], [RECAT]). Sem colchetes (\"ENC\") a resposta é 200 com a mensagem \"Ação não encontrada\". Atenção: falhas de negócio também voltam com HTTP 200; confira _metadata.MensagensErro. Campos adicionais dependem da ação. Para [ENC] e [AVAL], informe sempre tipoAvaliacao (1, 2 ou 3); sem ele a resposta é HTTP 500 (erro do servidor), não 200 com MensagensErro."
                     },
                     "response": []
                 },

@@ -464,7 +464,7 @@ HTTP 406 com a mensagem em texto puro.
 | HTTP 200 com `MensagensErro` contendo "Ação não encontrada" | O `Id` nao tem o codigo entre colchetes (ex.: `"ENC"`) ou nao existe para este formulario | Use o valor exato retornado por `GET /v1/requisicoes/{id}/acoes` (ex.: `"Encerrar [ENC]"`) |
 | HTTP 200 com `MensagensErro` sobre permissao | A acao nao esta liberada para o usuario neste estado da requisicao | Consulte primeiro `GET /v1/requisicoes/{id}/acoes` e use apenas acoes listadas |
 | HTTP 200 com `MensagensErro` pedindo o `Id` | O campo `Id` nao foi enviado ou veio vazio | Envie `Id` no payload |
-| HTTP 200 com `MensagensErro` sobre campo obrigatorio | Falta `Descricao`, `tipoAvaliacao`, `NovoSolicitado` ou outro campo exigido pela acao | Veja `Campos` em `GET /v1/requisicoes/{id}/acoes` e envie os campos com `Obrigatoriedade: true` |
+| HTTP 200 com `MensagensErro` sobre campo obrigatorio | Falta `Descricao`, `NovoSolicitado` ou outro campo exigido pela acao (`tipoAvaliacao` ausente em `ENC`/`AVAL` e diferente: dá HTTP 500, erro do servidor; informe sempre `tipoAvaliacao` 1, 2 ou 3) | Veja `Campos` em `GET /v1/requisicoes/{id}/acoes` e envie os campos com `Obrigatoriedade: true` |
 | HTTP 200 com `MensagensErro` sobre data | O campo `Data` nao e uma data valida | Envie a data em formato ISO (ex.: `2026-03-15T10:00:00`) |
 | HTTP 406 em texto puro | Requisicao inexistente ou usuario sem acesso, ou corpo ausente | Confirme o ID da requisicao e envie o corpo JSON |
 | HTTP 401 — Unauthorized | Token ausente, invalido ou usuario desativado | Faca login novamente e obtenha um novo token — veja [Autenticacao](../autenticacao.md) |
